@@ -5,7 +5,7 @@ Short narrated videos that explain this repository, written for someone fluent i
 ## Chapters
 
 1. **The shape of it.** What each folder is for, and one command followed from the input box through the game and back as text. *(made)*
-2. **TypeScript for a Python person.** Taught from this code: interfaces as dataclasses, union types, modules, why there is a build step, how it runs.
+2. **TypeScript for a Python person.** Taught from this code: interfaces as dataclasses, union types, modules, why there is a build step, how it runs. *(made)*
 3. **Worlds from a number.** Less about placing stars, more about what hangs off them: how a system's contents, its survey order and its finds come from a seed and an address; how events nearby, and events later in time, can be asked for the same way; and how the planned layers (civilisations, other ships, things the navigator leaves behind) will sit on the same idea. The useful part is the implementation and how it continues, not the astrophysics.
 4. **Changing things.** Tune a number, add a find to the catalogue, add a line for the Mind, then test, build, merge, tag.
 5. **Why it is built this way.** The design choices: staying pays, retired lines, a bot that flies before a person does, and what was cut.
@@ -44,7 +44,7 @@ curl -LO https://huggingface.co/fastrtc/kokoro-onnx/resolve/main/kokoro-v1.0.onn
 curl -LO https://huggingface.co/fastrtc/kokoro-onnx/resolve/main/voices-v1.0.bin
 ```
 
-Voice names starting with `a` are American and `b` British; the second letter is `f` or `m`. `af_heart` is the default.
+Voice names starting with `a` are American and `b` British; the second letter is `f` or `m`. `am_michael` is the default.
 
 `--voice pico` uses SVOX Pico instead (Ubuntu package `libttspico-utils`). It needs no model download and sounds much more mechanical.
 

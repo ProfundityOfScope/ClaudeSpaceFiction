@@ -100,8 +100,11 @@ export interface ConsoleScene extends Base {
   outs?: { k: string; s: string }[];
 }
 
+/** Two columns of short entries: a command and what it does, or a term and its counterpart. */
 export interface CmdScene extends Base {
   kind: 'cmds';
+  /** Set when the right-hand column is code too. */
+  codeNotes?: boolean;
   rows: { cmd: string; note: string; step: number }[];
 }
 

@@ -44,8 +44,8 @@ const SAY: [RegExp, string][] = [
 const args = process.argv.slice(2);
 const option = (name: string) => (args.includes(`--${name}`) ? args[args.indexOf(`--${name}`) + 1] : undefined);
 const which = args.find((a) => /^\d+$/.test(a)) ?? '1';
-/** The narrator: a Kokoro voice such as af_heart or bm_george, or "pico" for the older offline synthesiser. */
-const VOICE = option('voice') ?? 'af_heart';
+/** The narrator: a Kokoro voice such as am_michael or bm_george, or "pico" for the older offline synthesiser. */
+const VOICE = option('voice') ?? 'am_michael';
 const stillsAt = option('stills')?.split(',').map(Number) ?? null;
 const out = 'dist/tour';
 mkdirSync(`${out}/voice`, { recursive: true });

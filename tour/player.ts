@@ -137,7 +137,10 @@ function build(scene: TimedScene): HTMLElement {
     case 'code': {
       const code = scene.code ?? [];
       const longest = Math.max(...code.map((l) => l.length), ...(scene.aside?.code ?? []).map((l) => l.length));
-      const size = Math.min(34, Math.floor(846 / (longest * 0.602)));
+      // Fit the code to the stage: by its longest line across, and by its line count down.
+      const rows = code.length + (scene.aside?.code.length ?? 0);
+      const overhead = scene.aside ? 330 : 160;
+      const size = Math.min(34, Math.floor(846 / (longest * 0.602)), Math.floor((850 - overhead) / (rows * 1.6)));
       const pre = el('pre');
       pre.style.fontSize = `${size}px`;
       const lines = code.map(codeLine);
@@ -204,6 +207,7 @@ function build(scene: TimedScene): HTMLElement {
       });
       break;
     case 'cmds':
+      if (scene.codeNotes) root.classList.add('codey');
       for (const row of scene.rows) {
         const node = el('div', 'row');
         node.append(el('span', 'cmd', row.cmd), el('span', 'note', row.note));

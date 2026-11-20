@@ -74,7 +74,7 @@ html, body { margin: 0; background: var(--bg); }
 .fan .target .sub { font: 400 26px var(--mono); }
 
 .code .file { font: 500 26px var(--mono); color: var(--dim); letter-spacing: .04em; }
-.code pre { margin: 0; padding: 30px 30px 30px 26px; background: var(--panel); border: 2px solid var(--line); border-radius: 12px; font-family: var(--mono); line-height: 1.6; overflow: hidden; }
+.code pre { flex: none; margin: 0; padding: 30px 30px 30px 26px; background: var(--panel); border: 2px solid var(--line); border-radius: 12px; font-family: var(--mono); line-height: 1.6; overflow: hidden; }
 .code .cl { display: block; padding-left: 14px; border-left: 4px solid transparent; white-space: pre; }
 .code .cl.hl { border-left-color: var(--mind); background: rgba(143, 211, 200, .1); }
 .code .cl.low { opacity: .38; }
@@ -110,3 +110,8 @@ html, body { margin: 0; background: var(--bg); }
 .cmds .row .cmd { font: 500 42px var(--mono); }
 .cmds .row .note { font: 400 34px var(--sans); color: var(--dim); }
 .cmds .row.now .note { color: var(--ink); }
+.cmds.codey .row { padding: 20px 0; }
+.cmds.codey .row .cmd { color: var(--dim); font-size: 38px; }
+.cmds.codey .row .note { font: 500 38px var(--mono); color: var(--ink); }
+.cmds.codey .row.now .cmd { color: var(--ink); }
+.cmds.codey .row.now .note { color: var(--mind); }
