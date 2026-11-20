@@ -1,0 +1,202 @@
+<!--HEAD-->
+<title>Lightspeed</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* One-screen ship's console: status bar, scrolling log, one-tap commands, input line.
+   Night watch by default; a daylight variant for light themes. */
+:root {
+  color-scheme: dark;
+  --bg: #0d111c;
+  --panel: #141a29;
+  --line: #262e44;
+  --ink: #d9d5c7;
+  --dim: #7f879e;
+  --mind: #8fd3c8;
+  --alert: #e9a94c;
+  --good: #e6d58c;
+  --ok: #6fbf9b;
+  --warn: #e9a94c;
+  --crit: #e8705f;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --bg: #e9edf2;
+    --panel: #f6f8fa;
+    --line: #c5cdd8;
+    --ink: #18202c;
+    --dim: #5b6677;
+    --mind: #0d6b63;
+    --alert: #94560a;
+    --good: #6a5500;
+    --ok: #1f7a55;
+    --warn: #94560a;
+    --crit: #b23a2a;
+  }
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #e9edf2;
+  --panel: #f6f8fa;
+  --line: #c5cdd8;
+  --ink: #18202c;
+  --dim: #5b6677;
+  --mind: #0d6b63;
+  --alert: #94560a;
+  --good: #6a5500;
+  --ok: #1f7a55;
+  --warn: #94560a;
+  --crit: #b23a2a;
+}
+
+html, body { height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: clamp(12.5px, 3.45vw, 15px);
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+#app {
+  box-sizing: border-box;
+  height: 100%;
+  max-width: 46rem;
+  margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ---- status bar ---- */
+#bar { display: flex; flex-direction: column; gap: 3px; }
+.row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 12px; align-items: baseline; }
+#where { font-weight: 600; letter-spacing: .06em; text-transform: uppercase; min-width: 0; overflow-wrap: anywhere; }
+#clocks, #stores { color: var(--dim); }
+.gauges { justify-content: flex-start; gap: 2px 12px; }
+.g { display: flex; align-items: center; gap: 5px; }
+.g span { color: var(--dim); }
+.g i { display: block; width: 1.9rem; height: 6px; border-radius: 3px; background: var(--line); position: relative; overflow: hidden; }
+.g i::after { content: ""; position: absolute; inset: 0 auto 0 0; width: var(--v, 0%); background: var(--c, var(--ok)); border-radius: 3px; }
+.g b { font-weight: 500; min-width: 3ch; }
+
+/* ---- the log ---- */
+#log, #panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-block: 1px solid var(--line);
+  padding-block: 8px;
+}
+#log { display: flex; flex-direction: column; gap: 2px; }
+.o { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.o.pre { white-space: pre; overflow-x: auto; line-height: 1.32; padding-block: 4px; flex: none; }
+.o.echo { color: var(--dim); margin-top: 12px; }
+.o.mind { color: var(--mind); }
+.o.head { font-weight: 600; letter-spacing: .05em; margin-top: 4px; }
+.o.dim { color: var(--dim); }
+.o.good { color: var(--good); }
+.o.alert { color: var(--alert); }
+
+/* ---- commands ---- */
+#chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; flex: none; }
+#chips::-webkit-scrollbar { display: none; }
+button {
+  font: inherit;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 7px 11px;
+  white-space: nowrap;
+  cursor: pointer;
+  flex: none;
+}
+button:hover { border-color: var(--dim); }
+button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--mind); outline-offset: 1px; }
+#entry { display: flex; gap: 8px; align-items: center; flex: none; }
+#entry label { color: var(--mind); font-weight: 600; }
+/* 16px keeps phones from zooming the page when the field takes focus. */
+input, textarea {
+  font-family: var(--mono);
+  font-size: 16px;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 7px 10px;
+  box-sizing: border-box;
+}
+#cmd { flex: 1; min-width: 0; }
+
+/* ---- save menu ---- */
+#panel { display: flex; flex-direction: column; gap: 14px; }
+#panel section { display: flex; flex-direction: column; gap: 6px; }
+#panel h2 { margin: 0; font-size: inherit; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
+#panel p { margin: 0; color: var(--dim); max-width: 60ch; }
+#panel textarea { width: 100%; resize: vertical; font-size: 13px; }
+#panel .acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+#panel input { width: 11rem; max-width: 100%; }
+#note { color: var(--good); min-height: 1.5em; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .o.fresh { animation: settle .18s ease-out; }
+  @keyframes settle { from { opacity: .25; } to { opacity: 1; } }
+}
+</style>
+<!--/HEAD-->
+
+<div id="app">
+  <header id="bar">
+    <div class="row"><span id="where">Lightspeed</span><span id="clocks"></span></div>
+    <div class="row gauges">
+      <span class="g" id="g-fuel"><span>fuel</span><i></i><b></b></span>
+      <span class="g" id="g-shield"><span>shld</span><i></i><b></b></span>
+      <span class="g" id="g-hull"><span>hull</span><i></i><b></b></span>
+      <span id="stores"></span>
+    </div>
+  </header>
+
+  <main id="log" role="log" aria-live="polite" aria-label="Ship's log"></main>
+
+  <div id="panel" hidden>
+    <section>
+      <h2>This voyage</h2>
+      <p id="seedline"></p>
+    </section>
+    <section>
+      <h2>Keep a copy</h2>
+      <p>The voyage saves itself in this browser. To move it to another device, copy this text and load it there.</p>
+      <textarea id="savetext" rows="4" readonly aria-label="Save text"></textarea>
+      <div class="acts"><button id="copy" type="button">Copy save</button></div>
+    </section>
+    <section>
+      <h2>Load a copy</h2>
+      <textarea id="loadtext" rows="3" aria-label="Paste a save here" placeholder="Paste a save here"></textarea>
+      <div class="acts"><button id="load" type="button">Load it</button></div>
+    </section>
+    <section>
+      <h2>New voyage</h2>
+      <p>Each seed number is its own galaxy. Send someone the same number and they wake in the same sky.</p>
+      <div class="acts">
+        <input id="newseed" inputmode="numeric" aria-label="Seed number">
+        <button id="begin" type="button">Begin</button>
+      </div>
+    </section>
+    <div id="note" role="status"></div>
+    <div class="acts"><button id="close" type="button">Back to the log</button></div>
+  </div>
+
+  <nav id="chips" aria-label="Suggested commands"></nav>
+  <form id="entry" autocomplete="off">
+    <label for="cmd" aria-label="Command">&gt;</label>
+    <input id="cmd" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="send" placeholder="type a command">
+    <button id="menu" type="button">menu</button>
+  </form>
+</div>

@@ -1,0 +1,18 @@
+{
+  "name": "lightspeed-mud",
+  "private": true,
+  "type": "module",
+  "description": "Text prototype for Lightspeed: a forever cruise on a relativistic worldship.",
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "check": "tsc --noEmit",
+    "test": "node --test \"test/**/*.test.ts\"",
+    "play": "node tools/play.ts",
+    "bot": "node tools/bot.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.9.0"
+  }
+}
