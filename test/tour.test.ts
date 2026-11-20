@@ -2,9 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { chapter as chapter1 } from '../tour/chapter1.ts';
 import { chapter as chapter2 } from '../tour/chapter2.ts';
+import { chapter as chapter3 } from '../tour/chapter3.ts';
+import { chapter as chapter4 } from '../tour/chapter4.ts';
+import { chapter as chapter5 } from '../tour/chapter5.ts';
 import { resolveChapter } from '../tour/snippets.ts';
 
-const chapters = [chapter1, chapter2];
+const chapters = [chapter1, chapter2, chapter3, chapter4, chapter5];
 
 test('the tour quotes code that still exists', () => {
   for (const chapter of chapters) {

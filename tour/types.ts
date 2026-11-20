@@ -97,6 +97,8 @@ export interface TypeScene extends Base {
 export interface ConsoleScene extends Base {
   kind: 'console';
   commands: string[];
+  /** If set, keep only output lines matching this pattern. */
+  match?: string;
   outs?: { k: string; s: string }[];
 }
 

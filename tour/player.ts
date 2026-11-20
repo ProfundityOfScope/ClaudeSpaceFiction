@@ -168,6 +168,8 @@ function build(scene: TimedScene): HTMLElement {
       break;
     }
     case 'flow':
+      // Five or more steps need tighter boxes to fit the stage.
+      if (scene.nodes.length >= 5) root.classList.add('tight');
       scene.nodes.forEach((n, i) => {
         if (i > 0) {
           const down = el('div', 'down', '↓');

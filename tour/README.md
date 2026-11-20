@@ -4,11 +4,13 @@ Short narrated videos that explain this repository, written for someone fluent i
 
 ## Chapters
 
-1. **The shape of it.** What each folder is for, and one command followed from the input box through the game and back as text. *(made)*
-2. **TypeScript for a Python person.** Taught from this code: interfaces as dataclasses, union types, modules, why there is a build step, how it runs. *(made)*
-3. **Worlds from a number.** Less about placing stars, more about what hangs off them: how a system's contents, its survey order and its finds come from a seed and an address; how events nearby, and events later in time, can be asked for the same way; and how the planned layers (civilisations, other ships, things the navigator leaves behind) will sit on the same idea. The useful part is the implementation and how it continues, not the astrophysics.
-4. **Changing things.** Tune a number, add a find to the catalogue, add a line for the Mind, then test, build, merge, tag.
-5. **Why it is built this way.** The design choices: staying pays, retired lines, a bot that flies before a person does, and what was cut.
+1. **The shape of it.** What each folder is for, and one command followed from the input box through the game and back as text.
+2. **TypeScript for a Python person.** Taught from this code: interfaces as dataclasses, string unions and `Record`, the operators for missing values, array methods, modules, and why running a file does not type-check it.
+3. **Worlds from a number.** What hangs off a star: how a system's contents and its survey order come from a seed and an address, why the save only needs a count, and how the planned layers (civilisations, ruins, other ships, alerts) will sit on the same idea.
+4. **Changing things.** Tune a number, add a find to the catalogue, add a line for the Mind, and how a change travels from a file to the public page.
+5. **Why it is built this way.** The design choices: staying pays, the Mind keeps score, a bot flies before a person does, and what was left out.
+
+Each is `chapterN.ts`. The finished videos are not in the repository; render them with the command below.
 
 ## How a chapter is made
 

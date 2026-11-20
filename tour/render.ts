@@ -59,7 +59,8 @@ for (const scene of chapter.scenes) {
   if (scene.kind !== 'console') continue;
   const game = Game.fresh();
   // Drop the echoed command; the scene before it already showed the typing.
-  scene.outs = scene.commands.flatMap((c) => game.exec(c)).filter((o) => o.k !== 'echo');
+  const keep = scene.match ? new RegExp(scene.match) : null;
+  scene.outs = scene.commands.flatMap((c) => game.exec(c)).filter((o) => o.k !== 'echo' && (!keep || keep.test(o.s)));
 }
 
 // ---- 2. the voice: one sound file per sentence, cached by voice and text ----

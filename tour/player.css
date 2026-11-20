@@ -115,3 +115,7 @@ html, body { margin: 0; background: var(--bg); }
 .cmds.codey .row .note { font: 500 38px var(--mono); color: var(--ink); }
 .cmds.codey .row.now .cmd { color: var(--ink); }
 .cmds.codey .row.now .note { color: var(--mind); }
+.flow.tight .box { padding: 15px 28px; gap: 4px; }
+.flow.tight .box .label { font-size: 32px; }
+.flow.tight .box .sub { font-size: 26px; }
+.flow.tight .down { font-size: 34px; line-height: 1.2; }
