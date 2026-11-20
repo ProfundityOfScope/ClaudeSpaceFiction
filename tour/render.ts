@@ -1,15 +1,16 @@
 /**
  * Turn a tour chapter into a narrated video.
  *
- *   node tour/render.ts 1                 writes dist/tour/chapter1.mp4
- *   node tour/render.ts 1 --stills 5,40   writes stills at those seconds instead
+ *   node tour/render.ts 1                     writes dist/tour/chapter1.mp4
+ *   node tour/render.ts 1 --voice bm_george   the same, in another voice
+ *   node tour/render.ts 1 --stills 5,40       writes stills at those seconds instead
  *
  * Steps: quote the real code, speak each sentence to a sound file, lay the
  * sentences end to end to get the timing, draw every frame in a headless
  * browser, and let ffmpeg join pictures and sound.
  *
- * Needs on the machine: pico2wave (package libttspico-utils), ffmpeg, the
- * IBM Plex fonts, and Playwright with Chromium.
+ * Needs on the machine: ffmpeg, the IBM Plex fonts, Playwright with Chromium,
+ * and a voice: Kokoro (see tour/speak.py) or, with --voice pico, pico2wave.
  */
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -29,7 +30,8 @@ const SETTLE = 0.35;
 const BREATH = 0.24;
 const TURN = 0.55;
 const TAIL = 1.4;
-/** Speaking rate, in percent of the voice's own pace. */
+/** Speaking rate: for Kokoro a multiplier, for Pico a percentage of its own pace. */
+const SPEED = 1.0;
 const PACE = 122;
 /** How the voice should say words it would otherwise mangle. Captions keep the real spelling. */
 const SAY: [RegExp, string][] = [
@@ -40,8 +42,11 @@ const SAY: [RegExp, string][] = [
 ];
 
 const args = process.argv.slice(2);
+const option = (name: string) => (args.includes(`--${name}`) ? args[args.indexOf(`--${name}`) + 1] : undefined);
 const which = args.find((a) => /^\d+$/.test(a)) ?? '1';
-const stillsAt = args.includes('--stills') ? args[args.indexOf('--stills') + 1].split(',').map(Number) : null;
+/** The narrator: a Kokoro voice such as af_heart or bm_george, or "pico" for the older offline synthesiser. */
+const VOICE = option('voice') ?? 'af_heart';
+const stillsAt = option('stills')?.split(',').map(Number) ?? null;
 const out = 'dist/tour';
 mkdirSync(`${out}/voice`, { recursive: true });
 
@@ -57,7 +62,7 @@ for (const scene of chapter.scenes) {
   scene.outs = scene.commands.flatMap((c) => game.exec(c)).filter((o) => o.k !== 'echo');
 }
 
-// ---- 2. the voice: one sound file per sentence, cached by its text ----
+// ---- 2. the voice: one sound file per sentence, cached by voice and text ----
 
 interface Clip {
   pcm: Buffer;
@@ -65,10 +70,25 @@ interface Clip {
   seconds: number;
 }
 
-function speak(text: string): Clip {
-  const said = SAY.reduce((s, [from, to]) => s.replace(from, to), text);
-  const file = `${out}/voice/${createHash('sha1').update(`${PACE}|${said}`).digest('hex').slice(0, 12)}.wav`;
-  if (!existsSync(file)) execFileSync('pico2wave', ['-l', 'en-GB', '-w', file, `<speed level="${PACE}">${said}</speed>`]);
+const said = (text: string) => SAY.reduce((s, [from, to]) => s.replace(from, to), text);
+const clipFile = (text: string) =>
+  `${out}/voice/${createHash('sha1').update(`${VOICE}|${VOICE === 'pico' ? PACE : SPEED}|${said(text)}`).digest('hex').slice(0, 12)}.wav`;
+
+/** Make sure every sentence has a sound file. Kokoro loads its model once and speaks them all. */
+function record(texts: string[]) {
+  const missing = [...new Set(texts)].filter((t) => !existsSync(clipFile(t)));
+  if (!missing.length) return;
+  if (VOICE === 'pico') {
+    for (const t of missing) execFileSync('pico2wave', ['-l', 'en-GB', '-w', clipFile(t), `<speed level="${PACE}">${said(t)}</speed>`]);
+    return;
+  }
+  const job = `${out}/voice/job.json`;
+  writeFileSync(job, JSON.stringify({ voice: VOICE, speed: SPEED, items: missing.map((t) => ({ text: said(t), file: clipFile(t) })) }));
+  execFileSync('python3', ['tour/speak.py', job], { stdio: 'inherit' });
+}
+
+function load(text: string): Clip {
+  const file = clipFile(text);
   const wav = readFileSync(file);
   // A WAV file is a header, then chunks; the sound itself is the chunk named "data".
   let at = 12;
@@ -80,6 +100,7 @@ function speak(text: string): Clip {
 
 // ---- 3. timing: sentences laid end to end ----
 
+record(chapter.scenes.flatMap((s) => s.lines.map((l) => l.say ?? l.text)));
 let t = 0;
 let rate = 16000;
 const placed: { at: number; clip: Clip }[] = [];
@@ -89,7 +110,7 @@ const scenes: TimedScene[] = chapter.scenes.map((scene) => {
   const lineStart: number[] = [];
   const lineEnd: number[] = [];
   for (const line of scene.lines) {
-    const clip = speak(line.say ?? line.text);
+    const clip = load(line.say ?? line.text);
     rate = clip.rate;
     placed.push({ at: t, clip });
     lineStart.push(t);
@@ -160,7 +181,7 @@ if (stillsAt) {
       '-f', 'image2pipe', '-framerate', String(FPS), '-c:v', 'png', '-i', '-',
       '-i', `${out}/chapter${which}.wav`,
       '-c:v', 'libx264', '-preset', 'medium', '-crf', '19', '-pix_fmt', 'yuv420p', '-tune', 'animation',
-      // The voice arrives at 16 kHz and quiet: trim the rumble, bring it to a normal level,
+      // The voice arrives at a low sample rate and uneven level: trim the rumble, bring it to a normal level,
       // and resample last, because the loudness filter works at a very high rate internally.
       '-af', 'highpass=f=70,loudnorm=I=-17:TP=-1.5:LRA=11,aresample=44100',
       '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-movflags', '+faststart', '-shortest', film,

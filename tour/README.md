@@ -24,10 +24,28 @@ Captions and voice come from the same sentences, so they cannot fall out of step
 
 ```
 node tour/render.ts 1                      # writes dist/tour/chapter1.mp4
+node tour/render.ts 1 --voice bm_george    # the same, in another voice
 node tour/render.ts 1 --times              # also print when each scene starts
 node tour/render.ts 1 --stills 5,40,90     # write still frames at those seconds instead
 ```
 
-Needs `pico2wave` (Ubuntu package `libttspico-utils`), `ffmpeg`, the IBM Plex fonts (`fonts-ibm-plex`) and Playwright with Chromium. Output goes to `dist/`, which is not committed.
+Needs `ffmpeg`, the IBM Plex fonts (Ubuntu package `fonts-ibm-plex`), Playwright with Chromium, and a voice. Output goes to `dist/`, which is not committed.
 
-The voice is SVOX Pico, an older offline synthesiser. It was chosen because it installs without downloading a model. Sentences are cached by their text, so swapping in a better voice means changing one function, `speak`, in `render.ts`; the pictures re-time themselves to whatever the new voice produces.
+## The voice
+
+The narrator is [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M), a small open-source neural voice that runs on an ordinary processor. `render.ts` hands every sentence to `speak.py`, which loads the model once and writes one sound file per sentence. Files are cached by voice and text, so a second render only speaks what changed.
+
+Set-up, once per machine:
+
+```
+pip install kokoro-onnx soundfile
+mkdir -p ~/.cache/kokoro && cd ~/.cache/kokoro
+curl -LO https://huggingface.co/fastrtc/kokoro-onnx/resolve/main/kokoro-v1.0.onnx
+curl -LO https://huggingface.co/fastrtc/kokoro-onnx/resolve/main/voices-v1.0.bin
+```
+
+Voice names starting with `a` are American and `b` British; the second letter is `f` or `m`. `af_heart` is the default.
+
+`--voice pico` uses SVOX Pico instead (Ubuntu package `libttspico-utils`). It needs no model download and sounds much more mechanical.
+
+The pictures do not depend on the voice. Scenes are timed from the length of the recorded sentences, so a different voice, or a different speaking speed, just produces a film of a different length.
