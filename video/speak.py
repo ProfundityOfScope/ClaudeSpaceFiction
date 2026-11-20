@@ -1,6 +1,6 @@
 """Speak sentences with Kokoro, an open-source neural voice.
 
-    python3 tour/speak.py job.json
+    python3 video/speak.py job.json
 
 The job file names a voice and lists sentences with the sound file each
 should become:
@@ -9,7 +9,7 @@ should become:
      "items": [{"text": "The game is a function.", "file": "out/a1b2.wav"}]}
 
 The model is loaded once and speaks every sentence. It expects the model
-files in ~/.cache/kokoro (or the folder named by KOKORO_HOME); tour/README.md
+files in ~/.cache/kokoro (or the folder named by KOKORO_HOME); video/README.md
 says where to get them.
 """
 import json

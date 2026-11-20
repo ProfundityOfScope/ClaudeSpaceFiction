@@ -45,7 +45,7 @@ TypeScript, no framework, no runtime dependencies. The game core never touches t
 | `src/core/game.ts` | The commands |
 | `src/web/` | The page |
 | `tools/` | Build script, terminal player, and the bot |
-| `tour/` | Narrated video tour of the code, and its renderer |
+| `video/` | A small renderer for narrated code-walkthrough videos |
 
 Nothing about the galaxy is stored. A save holds the ship, the clocks and what the navigator has seen; everything else is regenerated from the seed. The demo galaxy is a 6,000 light-year disc of three million systems; `radius` and `totalSystems` in `config.ts` are the only numbers to change to make it larger.
 
@@ -61,6 +61,6 @@ node tools/bot.ts --jumps 500 --seed 7 --transcript > flight.txt
 
 `docs/index.html` is generated; edit `src/` and rebuild.
 
-## The tour
+## Videos
 
-`tour/` holds short narrated videos that explain how this repository works, and the code that renders them. See `tour/README.md`.
+`video/` can turn a short script into a narrated video that quotes this repository's real code. It is there for making tutorials; see `video/README.md`.

@@ -1,7 +1,7 @@
 /**
- * The shape of a tour chapter.
+ * The shape of a film script.
  *
- * A chapter is a list of scenes. A scene is a picture plus the sentences
+ * A film is a list of scenes. A scene is a picture plus the sentences
  * spoken over it. Each sentence can move the picture on one "step": things
  * on screen carry a step number and appear when the narration reaches it.
  */
@@ -64,7 +64,7 @@ export interface FanScene extends Base {
  * Real code from the repository. Either `from` (text on the first line) with
  * a `count` of lines, or `pick` (text identifying each line wanted, in order).
  * The renderer fills in `code`; a line that cannot be found is an error, so
- * the tour cannot quietly drift away from the source.
+ * a film cannot quietly drift away from the source.
  */
 export interface CodeScene extends Base {
   kind: 'code';
@@ -113,8 +113,10 @@ export interface CmdScene extends Base {
 export type Scene =
   | TitleScene | BigScene | TreeScene | SplitScene | FanScene | CodeScene | FlowScene | TypeScene | ConsoleScene | CmdScene;
 
-export interface Chapter {
-  number: number;
+export interface Film {
+  /** Shown at the top left of every frame: the name of the series or project. */
+  series: string;
+  /** Shown at the top right. */
   title: string;
   scenes: Scene[];
 }
@@ -129,8 +131,8 @@ export interface Timing {
 
 export type TimedScene = Scene & Timing;
 
-export interface TimedChapter {
-  number: number;
+export interface TimedFilm {
+  series: string;
   title: string;
   total: number;
   scenes: TimedScene[];

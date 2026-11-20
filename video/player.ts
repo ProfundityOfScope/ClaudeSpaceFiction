@@ -1,16 +1,16 @@
 /**
- * Draws a tour chapter in the browser.
+ * Draws a film in the browser.
  *
  * Everything on screen is a pure function of the time `t`: `renderAt(t)` sets
  * every element to how it looks at that moment. Nothing uses CSS transitions,
  * so the renderer can ask for frames in any order and get the same picture.
  */
-import type { Box, TimedChapter, TimedScene } from './types.ts';
+import type { Box, TimedFilm, TimedScene } from './types.ts';
 
 declare global {
   interface Window {
-    CHAPTER: TimedChapter;
-    __tour: { total: number; renderAt(t: number): void };
+    FILM: TimedFilm;
+    __film: { total: number; renderAt(t: number): void };
   }
 }
 
@@ -227,11 +227,11 @@ function build(scene: TimedScene): HTMLElement {
   return root;
 }
 
-function start(chapter: TimedChapter) {
+function start(film: TimedFilm) {
   const frame = document.getElementById('frame')!;
   const top = el('div');
   top.id = 'top';
-  top.append(el('span', '', 'LIGHTSPEED · A TOUR'), el('span', '', `${chapter.number} · ${chapter.title}`));
+  top.append(el('span', '', film.series.toUpperCase()), el('span', '', film.title));
   const bar = el('div');
   bar.id = 'bar';
   const fill = el('i');
@@ -240,31 +240,31 @@ function start(chapter: TimedChapter) {
   rule.id = 'rule';
   const cap = el('div');
   cap.id = 'cap';
-  frame.append(top, bar, ...chapter.scenes.map(build), rule, cap);
+  frame.append(top, bar, ...film.scenes.map(build), rule, cap);
 
   // Captions: the sentence being spoken, held until the next one starts.
   // A caption belongs to its scene: it clears when the picture changes.
-  const spoken = chapter.scenes.flatMap((s) => s.lines.map((line, i) => ({ text: line.text, at: s.lineStart[i], until: s.end })));
+  const spoken = film.scenes.flatMap((s) => s.lines.map((line, i) => ({ text: line.text, at: s.lineStart[i], until: s.end })));
   anims.push((t) => {
     let current = -1;
     for (let i = 0; i < spoken.length && spoken[i].at <= t; i++) current = i;
     if (current >= 0 && t >= spoken[current].until) current = -1;
     cap.textContent = current < 0 ? '' : spoken[current].text;
     cap.style.opacity = current < 0 ? '0' : String(ease((t - spoken[current].at) / 0.2));
-    fill.style.width = `${(100 * clamp(t / chapter.total)).toFixed(2)}%`;
+    fill.style.width = `${(100 * clamp(t / film.total)).toFixed(2)}%`;
   });
 
-  window.__tour = { total: chapter.total, renderAt: (t) => anims.forEach((a) => a(t)) };
-  window.__tour.renderAt(0);
+  window.__film = { total: film.total, renderAt: (t) => anims.forEach((a) => a(t)) };
+  window.__film.renderAt(0);
   // Opened by hand rather than by the renderer: just play, silently, in real time.
   if (!location.search.includes('render')) {
     const began = performance.now();
     const tick = () => {
-      window.__tour.renderAt(((performance.now() - began) / 1000) % (chapter.total + 1));
+      window.__film.renderAt(((performance.now() - began) / 1000) % (film.total + 1));
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
   }
 }
 
-start(window.CHAPTER);
+start(window.FILM);

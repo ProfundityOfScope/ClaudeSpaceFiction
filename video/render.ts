@@ -1,16 +1,17 @@
 /**
- * Turn a tour chapter into a narrated video.
+ * Turn a film script into a narrated video.
  *
- *   node tour/render.ts 1                     writes dist/tour/chapter1.mp4
- *   node tour/render.ts 1 --voice bm_george   the same, in another voice
- *   node tour/render.ts 1 --stills 5,40       writes stills at those seconds instead
+ *   node video/render.ts example                     writes dist/video/example.mp4
+ *   node video/render.ts example --voice bm_george   the same, in another voice
+ *   node video/render.ts example --times             also print when each scene starts
+ *   node video/render.ts example --stills 5,12       writes stills at those seconds instead
  *
- * Steps: quote the real code, speak each sentence to a sound file, lay the
- * sentences end to end to get the timing, draw every frame in a headless
- * browser, and let ffmpeg join pictures and sound.
+ * The name is a file in video/films. Steps: quote the real code, speak each
+ * sentence to a sound file, lay the sentences end to end to get the timing,
+ * draw every frame in a headless browser, and let ffmpeg join pictures and sound.
  *
  * Needs on the machine: ffmpeg, the IBM Plex fonts, Playwright with Chromium,
- * and a voice: Kokoro (see tour/speak.py) or, with --voice pico, pico2wave.
+ * and a voice: Kokoro (see video/speak.py) or, with --voice pico, pico2wave.
  */
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -19,8 +20,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { build } from 'esbuild';
 import { Game } from '../src/core/game.ts';
-import { resolveChapter } from './snippets.ts';
-import type { Chapter, TimedChapter, TimedScene } from './types.ts';
+import { resolveFilm } from './snippets.ts';
+import type { Film, TimedFilm, TimedScene } from './types.ts';
 
 const FPS = 30;
 const WIDTH = 1080;
@@ -43,19 +44,20 @@ const SAY: [RegExp, string][] = [
 
 const args = process.argv.slice(2);
 const option = (name: string) => (args.includes(`--${name}`) ? args[args.indexOf(`--${name}`) + 1] : undefined);
-const which = args.find((a) => /^\d+$/.test(a)) ?? '1';
+/** Which film: the name of a file in video/films. */
+const name = args[0] && !args[0].startsWith('--') ? args[0] : 'example';
 /** The narrator: a Kokoro voice such as am_michael or bm_george, or "pico" for the older offline synthesiser. */
 const VOICE = option('voice') ?? 'am_michael';
 const stillsAt = option('stills')?.split(',').map(Number) ?? null;
-const out = 'dist/tour';
+const out = 'dist/video';
 mkdirSync(`${out}/voice`, { recursive: true });
 
-const source = ((await import(`./chapter${which}.ts`)) as { chapter: Chapter }).chapter;
+const source = ((await import(`./films/${name}.ts`)) as { film: Film }).film;
 
 // ---- 1. real code and real game output ----
 
-const chapter = resolveChapter(source);
-for (const scene of chapter.scenes) {
+const film = resolveFilm(source);
+for (const scene of film.scenes) {
   if (scene.kind !== 'console') continue;
   const game = Game.fresh();
   // Drop the echoed command; the scene before it already showed the typing.
@@ -85,7 +87,7 @@ function record(texts: string[]) {
   }
   const job = `${out}/voice/job.json`;
   writeFileSync(job, JSON.stringify({ voice: VOICE, speed: SPEED, items: missing.map((t) => ({ text: said(t), file: clipFile(t) })) }));
-  execFileSync('python3', ['tour/speak.py', job], { stdio: 'inherit' });
+  execFileSync('python3', ['video/speak.py', job], { stdio: 'inherit' });
 }
 
 function load(text: string): Clip {
@@ -101,11 +103,11 @@ function load(text: string): Clip {
 
 // ---- 3. timing: sentences laid end to end ----
 
-record(chapter.scenes.flatMap((s) => s.lines.map((l) => l.say ?? l.text)));
+record(film.scenes.flatMap((s) => s.lines.map((l) => l.say ?? l.text)));
 let t = 0;
 let rate = 16000;
 const placed: { at: number; clip: Clip }[] = [];
-const scenes: TimedScene[] = chapter.scenes.map((scene) => {
+const scenes: TimedScene[] = film.scenes.map((scene) => {
   const start = t;
   t += SETTLE;
   const lineStart: number[] = [];
@@ -124,7 +126,7 @@ const scenes: TimedScene[] = chapter.scenes.map((scene) => {
 });
 const total = t + TAIL;
 scenes[scenes.length - 1].end = total;
-const timed: TimedChapter = { number: chapter.number, title: chapter.title, total, scenes };
+const timed: TimedFilm = { series: film.series, title: film.title, total, scenes };
 
 // One sound track: silence, with each sentence copied in at its moment.
 const track = Buffer.alloc(Math.ceil(total * rate) * 2);
@@ -142,19 +144,19 @@ header.writeUInt16LE(2, 32);
 header.writeUInt16LE(16, 34);
 header.write('data', 36);
 header.writeUInt32LE(track.length, 40);
-writeFileSync(`${out}/chapter${which}.wav`, Buffer.concat([header, track]));
+writeFileSync(`${out}/${name}.wav`, Buffer.concat([header, track]));
 
 // ---- 4. the page that draws it ----
 
-const bundle = await build({ entryPoints: ['tour/player.ts'], bundle: true, format: 'iife', write: false, legalComments: 'none' });
-const page = `<!doctype html><html><head><meta charset="utf-8"><title>Lightspeed tour ${which}</title>
-<style>${readFileSync('tour/player.css', 'utf8')}</style></head><body><div id="frame"></div>
-<script>window.CHAPTER = ${JSON.stringify(timed).replaceAll('</', '<\\/')};</script>
+const bundle = await build({ entryPoints: ['video/player.ts'], bundle: true, format: 'iife', write: false, legalComments: 'none' });
+const page = `<!doctype html><html><head><meta charset="utf-8"><title>${name}</title>
+<style>${readFileSync('video/player.css', 'utf8')}</style></head><body><div id="frame"></div>
+<script>window.FILM = ${JSON.stringify(timed).replaceAll('</', '<\\/')};</script>
 <script>${bundle.outputFiles[0].text.replaceAll('</script', '<\\/script')}</script></body></html>`;
-const pagePath = `${out}/chapter${which}.html`;
+const pagePath = `${out}/${name}.html`;
 writeFileSync(pagePath, page);
-const words = chapter.scenes.flatMap((s) => s.lines).reduce((n, l) => n + l.text.split(/\s+/).length, 0);
-console.log(`chapter ${which}: ${scenes.length} scenes, ${placed.length} sentences, ${words} words, ${total.toFixed(1)} s`);
+const words = film.scenes.flatMap((s) => s.lines).reduce((n, l) => n + l.text.split(/\s+/).length, 0);
+console.log(`${name}: ${scenes.length} scenes, ${placed.length} sentences, ${words} words, ${total.toFixed(1)} s`);
 if (args.includes('--times')) for (const s of scenes) console.log(`  ${s.start.toFixed(1).padStart(6)}  ${s.kind}  ${s.lines[0].text.slice(0, 50)}`);
 
 // ---- 5. frames, and the film ----
@@ -165,27 +167,27 @@ const tab = await browser.newPage({ viewport: { width: WIDTH, height: HEIGHT }, 
 await tab.goto(`file://${process.cwd()}/${pagePath}?render`);
 await tab.evaluate(() => document.fonts.ready);
 const shot = async (seconds: number): Promise<Buffer> => {
-  await tab.evaluate((s: number) => window.__tour.renderAt(s), seconds);
+  await tab.evaluate((s: number) => window.__film.renderAt(s), seconds);
   return tab.screenshot({ type: 'png' });
 };
 
 if (stillsAt) {
   mkdirSync(`${out}/stills`, { recursive: true });
-  for (const s of stillsAt) writeFileSync(`${out}/stills/c${which}-${String(s).padStart(3, '0')}.png`, await shot(s));
+  for (const s of stillsAt) writeFileSync(`${out}/stills/${name}-${String(s).padStart(3, '0')}.png`, await shot(s));
   console.log(`wrote ${stillsAt.length} stills to ${out}/stills`);
 } else {
-  const film = `${out}/chapter${which}.mp4`;
+  const output = `${out}/${name}.mp4`;
   const ffmpeg = spawn(
     'ffmpeg',
     [
       '-y', '-loglevel', 'error',
       '-f', 'image2pipe', '-framerate', String(FPS), '-c:v', 'png', '-i', '-',
-      '-i', `${out}/chapter${which}.wav`,
+      '-i', `${out}/${name}.wav`,
       '-c:v', 'libx264', '-preset', 'medium', '-crf', '19', '-pix_fmt', 'yuv420p', '-tune', 'animation',
       // The voice arrives at a low sample rate and uneven level: trim the rumble, bring it to a normal level,
       // and resample last, because the loudness filter works at a very high rate internally.
       '-af', 'highpass=f=70,loudnorm=I=-17:TP=-1.5:LRA=11,aresample=44100',
-      '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-movflags', '+faststart', '-shortest', film,
+      '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-movflags', '+faststart', '-shortest', output,
     ],
     { stdio: ['pipe', 'inherit', 'inherit'] },
   );
@@ -196,6 +198,6 @@ if (stillsAt) {
   }
   ffmpeg.stdin.end();
   await once(ffmpeg, 'close');
-  console.log(`wrote ${film}`);
+  console.log(`wrote ${output}`);
 }
 await browser.close();

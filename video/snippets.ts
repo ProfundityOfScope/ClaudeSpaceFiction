@@ -1,11 +1,11 @@
 /**
  * Pull the code a scene quotes out of the real source files.
  *
- * Quoting by search text rather than by line number means the tour survives
+ * Quoting by search text rather than by line number means a film survives
  * edits elsewhere in a file, and fails loudly if the quoted code is removed.
  */
 import { readFileSync } from 'node:fs';
-import type { Chapter, CodeScene } from './types.ts';
+import type { CodeScene, Film } from './types.ts';
 
 function dedent(lines: string[]): string[] {
   const indents = lines.filter((l) => l.trim() && l !== '…').map((l) => l.length - l.trimStart().length);
@@ -17,7 +17,7 @@ export function resolveSnippet(scene: CodeScene, root = '.'): string[] {
   const lines = readFileSync(`${root}/${scene.file}`, 'utf8').split('\n');
   const find = (needle: string, after: number): number => {
     const at = lines.findIndex((l, i) => i >= after && l.includes(needle));
-    if (at < 0) throw new Error(`tour: "${needle}" not found in ${scene.file}`);
+    if (at < 0) throw new Error(`video: "${needle}" not found in ${scene.file}`);
     return at;
   };
   let out: string[] = [];
@@ -34,19 +34,19 @@ export function resolveSnippet(scene: CodeScene, root = '.'): string[] {
       last = at;
     }
   } else {
-    throw new Error(`tour: a code scene for ${scene.file} needs "from" or "pick"`);
+    throw new Error(`video: a code scene for ${scene.file} needs "from" or "pick"`);
   }
   out = dedent(out);
   for (const mark of scene.hl ?? []) {
-    if (!out.some((l) => l.includes(mark.match))) throw new Error(`tour: highlight "${mark.match}" is not in the quoted lines of ${scene.file}`);
+    if (!out.some((l) => l.includes(mark.match))) throw new Error(`video: highlight "${mark.match}" is not in the quoted lines of ${scene.file}`);
   }
   return out;
 }
 
-/** Fill in `code` on every code scene of a chapter. */
-export function resolveChapter(chapter: Chapter, root = '.'): Chapter {
+/** Fill in `code` on every code scene of a film. */
+export function resolveFilm(film: Film, root = '.'): Film {
   return {
-    ...chapter,
-    scenes: chapter.scenes.map((s) => (s.kind === 'code' ? { ...s, code: resolveSnippet(s, root) } : s)),
+    ...film,
+    scenes: film.scenes.map((s) => (s.kind === 'code' ? { ...s, code: resolveSnippet(s, root) } : s)),
   };
 }
