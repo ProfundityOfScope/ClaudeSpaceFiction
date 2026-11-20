@@ -160,9 +160,10 @@ if (stillsAt) {
       '-f', 'image2pipe', '-framerate', String(FPS), '-c:v', 'png', '-i', '-',
       '-i', `${out}/chapter${which}.wav`,
       '-c:v', 'libx264', '-preset', 'medium', '-crf', '19', '-pix_fmt', 'yuv420p', '-tune', 'animation',
-      // The voice arrives at 16 kHz and quiet: resample, trim the rumble, bring it to a normal level.
-      '-af', 'aresample=44100,highpass=f=70,loudnorm=I=-17:TP=-1.5:LRA=11',
-      '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', '-shortest', film,
+      // The voice arrives at 16 kHz and quiet: trim the rumble, bring it to a normal level,
+      // and resample last, because the loudness filter works at a very high rate internally.
+      '-af', 'highpass=f=70,loudnorm=I=-17:TP=-1.5:LRA=11,aresample=44100',
+      '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-movflags', '+faststart', '-shortest', film,
     ],
     { stdio: ['pipe', 'inherit', 'inherit'] },
   );
