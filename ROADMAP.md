@@ -11,7 +11,7 @@ A text prototype of the game Lightspeed: a forever cruise on a relativistic worl
 - `main` = slice 1 plus the video renderer. `v0.1.0` tags slice 1 (commit 8461d87).
 - Public page: GitHub Pages serves `main` / `docs/`. Dev preview: a private Artifact named "Lightspeed", republished from `dist/artifact.html` (find it in the artifact list; pass its URL to update it in place).
 - Current branch of work: `claude/onboarding-and-tuning`. Next after it: slice 2.
-- Waiting on the owner: a filled-in play-test checklist (sent in chat, not in the repo).
+- Play-test 1 is in (below). A proposal for this branch has been put to the owner; do not build until they approve it.
 
 ## What the owner wants (their steers, in order of weight)
 
@@ -39,15 +39,32 @@ Reactions to slice 1 so far: finding the worked stone at Ember 61 was the high p
 3. **Other wakes.** Other ships, broadcasts, festivals, Lodestars, the navigator's marks.
 4. **Deep time.** Novae and supernova alerts, differences on revisits, the Mind's reckonings.
 
-### Now: onboarding and tuning
+### Play-test 1 (the owner, 30 minutes, 5 systems, 4 jumps)
 
-- **Onboarding.** Have the Mind walk the first visit and then go quiet: sweep, assign a crew, stay, chart, plot, burn. The likely stumble is that days only pass on `stay`. Do it in the Mind's voice, driven by state, not as a tutorial mode; a returning player must never see it.
-- **Tuning.** Wait for the checklist. Things already suspected:
-  - First refits may come too soon (the bot got one in the second system).
-  - The bot only makes short hops, so nothing past the starting cluster has been exercised: long hauls, clouds, the economy burn, a real dissent.
-  - Common finds repeat within about twenty systems; rare ones have one text each.
-  - Hull barely matters in bot runs. Fuel and shield bite only outside the cluster.
-- **Known rough edges.** After a tank refit the fuel percentage drops with no explanation. Oddities (`!`) may be too reliable a source of rare finds.
+- **Getting started:** no single blocker, just not knowing which command was which. Kept forgetting how to get the system table back (it is `look`; they used `sweep`). Understood that days pass only on `stay`. Buttons on the phone at first, then mostly typing.
+- **Stay or go:** always finished the survey and kept mining until everything was full, then looked for the next system. There is no cost to staying. The one change asked for: some incentive to move, and not an intense one.
+- **Two crews:** right. One would have been no fun.
+- **Leaving the cluster:** tried a star 51 ly out. A hard burn could not reach it and the economy burn would have taken years, so went to a nearer bright star. Arrived low and spent a long while skimming the star's wind.
+- **Economy burn:** rarely worth it. Suggested making it more than proportionally efficient (their example: a quarter of the thrust for a sixteenth of the fuel).
+- **Gas:** interesting but hard to judge, because you cannot see where it is.
+- **The Mind:** good character, a touch too talkative. Liked the line about the charter it helped write. Expected repeated provocation to draw some reaction and it did not.
+- **Refits:** first at the fourth system, but could have been the first; nothing gates them except time. Materials feel too universal. Suggested extra resources found in different places at different difficulty.
+- **Text:** nothing went stale. Quiet systems felt restful. The feel to aim for: calm scanning, occasionally punctuated by something strange.
+- **Liked:** topping the ship off; juggling a refit, a repair and mining at once; chasing an oddity (methane-producing microbes).
+- **Ideas offered for later:** very rare events, such as temporary bonuses to ship systems, or items that can be sold.
+- **One more jump?** "Sort of, hard to say yet."
+
+### Now: onboarding and tuning (proposed, awaiting approval)
+
+1. **Onboarding.** The Mind walks the first visit in its own voice (sweep, assign, stay, chart, plot, burn), driven by state, then never again. Old saves skip it. Aliases `map` and `system` for `look`; a steadier set of buttons; "did you mean" for unknown commands.
+2. **Burns.** Fuel use goes as thrust squared, so the economy burn costs about an eighth of the fuel for about twice the time. Hard burns are unchanged.
+3. **Refit ingredients by place.** Three special materials gathered as by-products of work already in the game: metals from rich belts, isotopes from ice giants, exotics from the winds of unusual stars (giants, remnants, supergiants). Early refits need the local two; later levels need exotics, which means leaving the cluster.
+4. **The mood aboard** (pulled forward from slice 2). One number, voiced by the three blocs, that nudges work speed by about 15% either way. New sky and finds lift it; a system with nothing left to chart and long years in transit lower it. This is what gives time a price, and so makes both "stay or go" and "hard or economy" real choices.
+5. **Seeing the gas.** Four levels of shading on the chart map, and a zoomed-out view of gas and bright stars.
+6. **The Mind.** Quieter when it has nothing to flag on a plot. Escalating lines when it keeps being overruled, and when it keeps being right or wrong.
+7. Small: faster wind skimming, a note when a tank refit lowers the fuel percentage, a derated drive when the hull is badly damaged.
+
+Lighter alternative if the mood is deferred: easy ore that runs out in each system, plus a short work bonus on arriving somewhere new.
 
 ### Slice 2 design, as far as it is thought through
 
