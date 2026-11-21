@@ -101,8 +101,10 @@ export function planLeg(
     ship,
     galaxy: galaxyYears,
     // The engine holds its thrust against the drag the whole way, so fuel
-    // goes by time under burn. A better hull deflects most of what it meets.
-    fuel: thrustFraction * ship,
+    // goes by time under burn. A drive pushed hard wastes fuel: the burn
+    // rate goes as the square of the thrust, so a gentle burn is far cheaper.
+    // A better hull deflects most of what it meets.
+    fuel: thrustFraction * thrustFraction * ship,
     shield: (TUNE.ABLATION * column) / (drive.hull * drive.hull),
     gamma: gammaPeak,
     gasMin,

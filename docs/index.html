@@ -243,7 +243,7 @@ input, textarea {
      * hull raises it; denser gas lowers it.
      */
     REACH: 0.4,
-    /** Fraction of full thrust used by an economy burn. */
+    /** Fraction of full thrust used by an economy burn. Fuel goes as thrust squared, so it is far cheaper. */
     ECO: 0.25,
     /** Shield lost per (atoms/cm^3 * ly * (gamma - 1)), divided by hull grade squared. */
     ABLATION: 2.6,
@@ -251,8 +251,13 @@ input, textarea {
     BREACH: 0.5,
     /** Hull wear from any jump, percent. */
     JUMP_WEAR: 0.3,
-    /** Hull wear per year aboard, percent. */
+    /** Hull wear per year at rest, percent. */
     AGE_WEAR: 0.4,
+    /** Hull wear per year under way, percent. This is what a slow, frugal burn costs. */
+    TRANSIT_WEAR: 1.5,
+    /** Below this hull condition the Wrights throttle the drive to this fraction of its thrust. */
+    HULL_THROTTLE: 40,
+    THROTTLE: 0.7,
     /** The drive will not light below this hull condition after the jump. */
     HULL_FLOOR: 5,
     /** Last-resort drift speed, as a fraction of c. */
@@ -260,7 +265,7 @@ input, textarea {
     /** Fuel gathered per day by richness 1..3, percent of a full tank. */
     SCOOP: [0, 0.5, 1, 1.6],
     /** Fuel skimmed from a star's wind, percent of tank per day. */
-    WIND: 0.12,
+    WIND: 0.25,
     /** Shield rebuilt per day by ice richness 1..3, percent. */
     ICE: [0, 0.35, 0.7, 1.1],
     /** Materials mined per day by ore richness 1..3. */
@@ -1758,8 +1763,10 @@ input, textarea {
       ship,
       galaxy: galaxyYears,
       // The engine holds its thrust against the drag the whole way, so fuel
-      // goes by time under burn. A better hull deflects most of what it meets.
-      fuel: thrustFraction * ship,
+      // goes by time under burn. A drive pushed hard wastes fuel: the burn
+      // rate goes as the square of the thrust, so a gentle burn is far cheaper.
+      // A better hull deflects most of what it meets.
+      fuel: thrustFraction * thrustFraction * ship,
       shield: TUNE.ABLATION * column / (drive.hull * drive.hull),
       gamma: gammaPeak,
       gasMin,
@@ -1860,6 +1867,36 @@ input, textarea {
       "For the record, I would not do this. I've logged it, and I'll check afterwards whether I was right.",
       "I'm entering a dissent. It changes nothing. It means I will look back at this later.",
       "My objection is in the log. You have the conn; that's what the charter says and I helped write it."
+    ],
+    dissent_again: [
+      "Dissent number {n}. I have started a second page.",
+      "Again, for the record. The record is getting long.",
+      "The objection is the same as the last {last} times. I'll spare you the wording.",
+      "Logged, with the others. I file them by date, and the dates are close together.",
+      "Number {n}. I'd say I was repeating myself, but you'd have to have listened the first time."
+    ],
+    dissent_weary: [
+      "I have nothing new to say about this. Logged.",
+      "You know what I think. It's in the log, under the others.",
+      "Logged."
+    ],
+    refuse: ["No. The hull would not survive it, and I am the hull. Mend first, or find more shield."],
+    refuse_again: [
+      "Still no. Ask me again when the Wrights have had a month.",
+      "No, and asking twice does not change the arithmetic.",
+      "I will not. It is the one thing in the charter I don't have to explain.",
+      "No. I can do this for longer than you can."
+    ],
+    reckon_right_streak: [
+      "That is {n} times running the hull has agreed with me. I'm not keeping score. The Wrights are.",
+      "Right again, {n} in a row. I'd rather have been wrong; it is cheaper.",
+      "{n} objections, {n} repairs. I mention the pattern and nothing else.",
+      "I was right at {where} too. That makes {n}. I take no pleasure in arithmetic this simple."
+    ],
+    reckon_wrong_streak: [
+      "Wrong again: {n} in a row. Either you are good at this or you are lucky, and I can't tell which from here.",
+      "{n} objections, {n} safe arrivals. I've widened my margins. You earned that.",
+      "I keep expecting the worst and you keep not delivering it. Noted, with some relief."
     ],
     reckon_right: [
       "I dissented at {where}. Hull is down {hull} points. I will leave it there.",
@@ -2001,6 +2038,20 @@ input, textarea {
     mind.used[pool] = [...used, choice];
     return fill(lines[choice], vars);
   }
+  var GUIDE = {
+    start: "First, a sweep. It costs an hour and shows what orbits this star.",
+    swept: "That is everything big enough to see from here. We have two crews, both idle. {where} has fuel for the taking, and a survey would tell us what the rest is worth.",
+    sweptHint: 'Try "scoop {n}" and "survey". "ops" lists all the work here, and "look" (or "map") shows this table again.',
+    sweptBare: "That is everything big enough to see from here. We have two crews, both idle. A survey would tell us what this place is worth.",
+    sweptBareHint: 'Try "survey". "ops" lists all the work here, and "look" (or "map") shows this table again.',
+    working: "Good. Nothing happens until you let the days run.",
+    workingHint: '"stay" runs time until a crew finishes or something turns up. "stay 30" runs thirty days.',
+    stayed: "That is the rhythm of it: put the crews to work, let the days run, see what turns up. Stay as long as it pays.",
+    stayedHint: 'When you want to move on, "chart" shows the stars in reach.',
+    charted: "Pick one and I will work out what it costs. A few months for us is a few years for everyone outside.",
+    chartedHint: '"plot 1" costs the trip to number 1. "scope 1" is what the telescope sees there. "gas" shows the wider sky.',
+    done: "That is all of it. I will stop explaining now. Ask, if you want my view of anything."
+  };
 
   // src/core/format.ts
   function pad(s, n) {
@@ -2108,7 +2159,8 @@ input, textarea {
       mind,
       chart: [],
       stats: { jumps: 0, ly: 0, systems: 1, finds: 0 },
-      home: sys.name
+      home: sys.name,
+      guide: 0
     };
   }
 
@@ -2140,8 +2192,58 @@ input, textarea {
     idle: "recall",
     codex: "finds",
     upgrades: "refits",
-    fix: "repair"
+    fix: "repair",
+    map: "look",
+    system: "look",
+    sys: "look",
+    jump: "burn",
+    nav: "chart",
+    crews: "ops",
+    crew: "ops",
+    work: "ops",
+    far: "gas",
+    wide: "gas",
+    lanes: "gas"
   };
+  var VERBS = [
+    "look",
+    "sweep",
+    "ops",
+    "scoop",
+    "ice",
+    "mine",
+    "survey",
+    "scan",
+    "repair",
+    "recall",
+    "stay",
+    "chart",
+    "gas",
+    "scope",
+    "plot",
+    "burn",
+    "drift",
+    "ask",
+    "ship",
+    "refits",
+    "refit",
+    "log",
+    "finds",
+    "name",
+    "help"
+  ];
+  function editDistance(a, b) {
+    let row = Array.from({ length: b.length + 1 }, (_, j) => j);
+    for (let i = 1; i <= a.length; i++) {
+      const next = [i];
+      for (let j = 1; j <= b.length; j++) {
+        next.push(Math.min(row[j] + 1, next[j - 1] + 1, row[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)));
+      }
+      row = next;
+    }
+    return row[b.length];
+  }
+  var shade = (n) => n >= 10 ? "#" : n >= 1.2 ? "%" : n >= 0.2 ? ":" : n >= 0.03 ? "." : " ";
   var Game = class _Game {
     constructor(state, cfg = DEMO) {
       __publicField(this, "galaxy");
@@ -2194,8 +2296,12 @@ input, textarea {
     get tank() {
       return level(this.state, "tanks");
     }
+    /** The Wrights throttle the drive when the hull is badly damaged. */
+    get throttled() {
+      return this.state.ship.hull < TUNE.HULL_THROTTLE;
+    }
     get drive() {
-      return { thrust: level(this.state, "engine"), hull: level(this.state, "hull") };
+      return { thrust: level(this.state, "engine") * (this.throttled ? TUNE.THROTTLE : 1), hull: level(this.state, "hull") };
     }
     get fuelPct() {
       return 100 * this.state.ship.fuel / this.tank;
@@ -2244,7 +2350,8 @@ input, textarea {
         `We are in orbit at ${sys.name}, ${where}. Tanks at ${Math.round(this.fuelPct)}%. The drive is the one we were launched with, which is to say modest.`
       );
       this.mindSays("The stars are close together here. I suggest we learn the neighbourhood before we try anything long.");
-      this.dim('Type a command or tap one below. "sweep" looks at this system. "help" lists everything.');
+      if (this.state.guide !== void 0) this.mindSays(GUIDE.start);
+      this.dim('Type a command or tap one below: "sweep" to begin. "help" lists them all.');
       return this.out;
     }
     exec(input) {
@@ -2282,6 +2389,9 @@ input, textarea {
         case "chart":
           this.chart();
           break;
+        case "gas":
+          this.gas();
+          break;
         case "scope":
           this.scope(arg);
           break;
@@ -2318,11 +2428,50 @@ input, textarea {
         case "help":
           this.help();
           break;
-        default:
-          this.text(`"${first}" is not something I know how to do. "help" lists what is.`);
+        default: {
+          const near = VERBS.map((v) => ({ v, d: editDistance(verb, v) })).sort((a, b) => a.d - b.d)[0];
+          const guess = near.d <= 2 && near.d < verb.length ? ` Did you mean "${near.v}"?` : "";
+          this.text(`"${first}" is not something I know how to do.${guess} "help" lists what is.`);
+        }
       }
       this.lastVerb = verb;
+      this.guide(verb);
       return this.out;
+    }
+    /**
+     * The first visit of a new voyage: the Mind explains each step once, as the
+     * navigator reaches it, and then stops for good. Driven by what has
+     * actually happened, so steps taken out of order are simply skipped.
+     */
+    guide(verb) {
+      const s = this.state;
+      if (s.guide === void 0) return;
+      if (s.stats.jumps > 0) {
+        this.mindSays(GUIDE.done);
+        s.guide = void 0;
+      } else if (s.guide === 0 && this.mem.swept) {
+        const giant = this.here.bodies.filter((b) => b.fuel > 0).sort((a, b) => b.fuel - a.fuel)[0];
+        if (giant) {
+          this.mindSays(fill(GUIDE.swept, { where: capital(bodyRef(this.here, giant.n)) }));
+          this.dim(fill(GUIDE.sweptHint, { n: giant.n }));
+        } else {
+          this.mindSays(GUIDE.sweptBare);
+          this.dim(GUIDE.sweptBareHint);
+        }
+        s.guide = 1;
+      } else if (s.guide === 1 && s.crews.some((c) => c !== null)) {
+        this.mindSays(GUIDE.working);
+        this.dim(GUIDE.workingHint);
+        s.guide = 2;
+      } else if (s.guide === 2 && verb === "stay" && s.tShip > 0) {
+        this.mindSays(GUIDE.stayed);
+        this.dim(GUIDE.stayedHint);
+        s.guide = 3;
+      } else if (s.guide <= 3 && (verb === "chart" || verb === "gas") && s.chart.length) {
+        this.mindSays(GUIDE.charted);
+        this.dim(GUIDE.chartedHint);
+        s.guide = 4;
+      }
     }
     status() {
       const s = this.state;
@@ -2343,10 +2492,10 @@ input, textarea {
     chips() {
       const s = this.state;
       if (!this.mem.swept) return ["sweep", "chart", "ship", "ask", "help"];
-      if (this.lastVerb === "chart" && s.chart.length) {
-        return [...s.chart.slice(0, 5).map((_, i) => `plot ${i + 1}`), "scope 1", "ops"];
+      if ((this.lastVerb === "chart" || this.lastVerb === "gas") && s.chart.length) {
+        return [...s.chart.slice(0, 5).map((_, i) => `plot ${i + 1}`), "scope 1", this.lastVerb === "gas" ? "chart" : "gas", "look"];
       }
-      if ((this.lastVerb === "plot" || this.lastVerb === "scope") && s.plot) return ["burn", "burn eco", "chart", "ops"];
+      if ((this.lastVerb === "plot" || this.lastVerb === "scope") && s.plot) return ["burn", "burn eco", "chart", "look"];
       const chips2 = [];
       if (s.crews.some((c) => c === null)) {
         for (const job of this.suggestions()) if (chips2.length < 3) chips2.push(job);
@@ -2354,7 +2503,8 @@ input, textarea {
       if (s.crews.some((c) => c !== null)) chips2.push("stay", "stay 30");
       const refitReady = Object.keys(REFITS).some((t) => this.refitState(t) === "ready");
       if (refitReady && s.crews.some((c) => c === null)) chips2.push("refits");
-      chips2.push("ops", "chart", "ask", "ship");
+      chips2.push("look", "ops", "chart", "ship", "ask");
+      if (s.guide === 3) return ["chart", ...chips2.filter((c) => c !== "chart")];
       return chips2;
     }
     // ---- looking at the system ---------------------------------------------
@@ -2797,6 +2947,7 @@ input, textarea {
                 const info = REFITS[track];
                 this.good(`Day ${day}. Refit complete: ${info.label.toLowerCase()} now ${level(s, track)}${info.unit ? ` ${info.unit}` : ""}.`);
                 this.note(`Refit at ${this.nameOf(s.at)}: ${info.label.toLowerCase()} ${level(s, track)}.`);
+                if (track === "tanks") this.dim(`Bigger tanks, the same fuel: the gauge now reads ${Math.round(this.fuelPct)}%.`);
                 this.say("refit_done");
                 s.crews[i] = null;
                 if (auto) stop = true;
@@ -2876,7 +3027,7 @@ input, textarea {
       listed.forEach((x, i) => i < 9 && put(x, String(i + 1)));
       grid[6][20] = "@";
       const lines = grid.map((row) => row.join("").trimEnd());
-      lines.push("", " #  system              ly star  sees");
+      lines.push("", " #  system             ly g star  sees");
       const nearRange = strata[0].sight * optics;
       listed.forEach((x, i) => {
         const sys = this.system(x.ref.id);
@@ -2884,16 +3035,62 @@ input, textarea {
         let sees = "?";
         if (visited?.swept || x.dist <= nearRange) sees = `${"O".repeat(Math.min(3, sys.giants)) || "-"} ${"~".repeat(sys.dust) || "-"}`;
         if (x.dist <= oddRange && this.unresolvedAnomaly(x.ref.id)) sees += " !";
-        lines.push(`${lpad(String(i + 1), 2)}${visited ? "*" : " "} ${pad(this.nameOf(x.ref.id), 16)}${lpad(ly(x.dist), 5)} ${pad(STARS[sys.star].code, 5)} ${sees}`);
+        const way = shade(planLeg(this.galaxy, here, x.ref, this.drive, 1).gasMean).replace(" ", "_");
+        lines.push(`${lpad(String(i + 1), 2)}${visited ? "*" : " "} ${pad(this.nameOf(x.ref.id), 15)}${lpad(ly(x.dist), 5)} ${way} ${pad(STARS[sys.star].code, 5)} ${sees}`);
       });
       this.pre(lines);
       this.dim(`map: @ us, : dense gas, % cloud, edge at ${ly(radius)} ly`);
+      this.dim("g: gas on the way (_ void, . thin, : moderate, % dense, # cloud)");
       this.dim("sees: O giants, ~ belts and comets, ! oddity, * been there");
       const fancy = listed.findIndex((x) => this.system(x.ref.id).star === s.mind.fancy && !s.mem[x.ref.id]);
       if (fancy >= 0 && !s.mind.said.includes(`fancy:${listed[fancy].ref.id}`)) {
         s.mind.said.push(`fancy:${listed[fancy].ref.id}`);
         this.say("fancy_seen", { kind: STARS[s.mind.fancy].name, dist: `${ly(listed[fancy].dist)} light-years`, n: fancy + 1 });
       }
+    }
+    /** The wider sky: where the gas is thick and thin, and the bright stars to steer by. */
+    gas() {
+      const s = this.state;
+      const here = this.here.ref;
+      const optics = level(s, "optics");
+      const radius = 100 * optics;
+      const cols = 41;
+      const rows = 13;
+      const grid = [];
+      for (let r = 0; r < rows; r++) {
+        const row = [];
+        for (let c = 0; c < cols; c++) {
+          let n = 0;
+          for (const dr of [-0.33, 0, 0.33]) {
+            n = Math.max(n, this.galaxy.gas(here.x + (c - 20) / 20 * radius, here.y + (6 - r + dr) / 6 * radius));
+          }
+          row.push(shade(n));
+        }
+        grid.push(row);
+      }
+      const bright = this.galaxy.near(here.x, here.y, optics).filter((x) => x.ref.id !== here.id && x.ref.stratum >= 2 && x.dist <= radius).slice(0, 9);
+      bright.forEach((x, i) => {
+        const c = 20 + Math.round((x.ref.x - here.x) / radius * 20);
+        const r = 6 - Math.round((x.ref.y - here.y) / radius * 6);
+        if (r >= 0 && r < rows && c >= 0 && c < cols) grid[r][c] = String(i + 1);
+      });
+      grid[6][20] = "@";
+      const lines = grid.map((row) => row.join("").trimEnd());
+      if (bright.length) {
+        s.chart = bright.map((x) => x.ref.id);
+        lines.push("", " #  system             ly star  way");
+        bright.forEach((x, i) => {
+          const sys = this.system(x.ref.id);
+          const leg = planLeg(this.galaxy, here, x.ref, this.drive, 1);
+          const way = `${Galaxy.gasWord(leg.gasMean)}${leg.gasMax >= 10 && leg.gasMean < 10 ? ", cloud" : ""}`;
+          lines.push(`${lpad(String(i + 1), 2)}${s.mem[x.ref.id] ? "*" : " "} ${pad(this.nameOf(x.ref.id), 15)}${lpad(ly(x.dist), 5)} ${pad(STARS[sys.star].code, 5)} ${way}`);
+        });
+      }
+      this.pre(lines);
+      this.dim(`gas: blank void, . thin, : moderate, % dense, # cloud \xB7 @ us \xB7 edge at ${ly(radius)} ly`);
+      this.dim(
+        bright.length ? 'Thin gas is fast going; a cloud is a wall. These are the bright stars in range, and "plot" works on their numbers.' : `Thin gas is fast going; a cloud is a wall. No bright stars within ${ly(radius)} light-years.`
+      );
     }
     /** A system with something odd in it that we have not yet resolved. */
     unresolvedAnomaly(id) {
@@ -2947,11 +3144,12 @@ input, textarea {
     cost(leg) {
       const s = this.state;
       const breach = Math.max(0, leg.shield - s.ship.shield) * TUNE.BREACH;
-      const hullLoss = TUNE.JUMP_WEAR + breach + TUNE.AGE_WEAR * leg.ship;
+      const hullLoss = TUNE.JUMP_WEAR + breach + TUNE.TRANSIT_WEAR * leg.ship;
       return {
         fuelPct: 100 * leg.fuel / this.tank,
         fuelAfter: this.fuelPct - 100 * leg.fuel / this.tank,
         shieldAfter: Math.max(0, s.ship.shield - leg.shield),
+        hullAfter: s.ship.hull - hullLoss,
         breach,
         hullLoss
       };
@@ -2966,27 +3164,29 @@ input, textarea {
       const eco = planLeg(this.galaxy, here, sys.ref, this.drive, TUNE.ECO);
       const ch = this.cost(hard);
       const ce = this.cost(eco);
-      const row = (label, leg, c) => ` ${pad(label, 5)}${lpad(span(leg.ship), 8)}${lpad(span(leg.galaxy), 9)}${lpad(`-${Math.round(c.fuelPct)}%`, 7)}${lpad(`-${Math.round(Math.min(leg.shield, 999))}%`, 8)}`;
-      const after = (c) => c.fuelAfter < 0 ? "no fuel" : `fuel ${Math.round(c.fuelAfter)}% shield ${Math.round(c.shieldAfter)}%`;
+      const time = (label, leg) => ` ${pad(label, 9)}${lpad(span(leg.ship), 8)}${lpad(span(leg.galaxy), 10)}`;
+      const after = (label, c) => c.fuelAfter < 0 ? ` ${pad(label, 9)}  not enough fuel` : ` ${pad(label, 9)}${lpad(`${Math.round(c.fuelAfter)}%`, 6)}${lpad(`${Math.round(c.shieldAfter)}%`, 8)}${lpad(`${Math.max(0, Math.round(c.hullAfter))}%`, 7)}`;
       this.pre([
         ` to ${this.nameOf(sys.ref.id)} \xB7 ${ly(hard.dist)} ly \xB7 gas ${Galaxy.gasWord(hard.gasMean)}`,
         "",
-        "        aboard  outside   fuel  shield",
-        row("hard", hard, ch),
-        row("eco", eco, ce),
+        "            aboard   outside",
+        time("hard", hard),
+        time("eco", eco),
         "",
-        ` arrive hard: ${after(ch)}`,
-        ` arrive eco:  ${after(ce)}`
+        " arriving   fuel  shield   hull",
+        after("hard", ch),
+        after("eco", ce)
       ]);
       const vars = { fuel: Math.max(0, Math.round(ch.fuelAfter)), hull: Math.round(ch.breach), ship: spanWords(hard.ship), outside: spanWords(hard.galaxy), gas: Galaxy.gasWord(hard.gasMean) };
+      const quiet = (s.visit.plots ?? 0) > 0;
+      s.visit.plots = (s.visit.plots ?? 0) + 1;
       if (ch.fuelAfter < 0) this.say(ce.fuelAfter < 0 ? "plot_nothing" : "plot_nofuel");
       else if (ch.breach >= 2) this.say("plot_shield", vars);
       else if (hard.gasMax >= 10) this.say("plot_cloud");
       else if (ch.fuelAfter < 15) this.say("plot_tight", vars);
       else if (hard.ship > 5) this.say("plot_long", vars);
-      else if (hard.gasMean < 0.2) this.say("plot_thin");
-      else this.say("plot_ok", vars);
-      this.dim('"burn" goes at full thrust, "burn eco" at a quarter.');
+      else if (!quiet) this.say(hard.gasMean < 0.2 ? "plot_thin" : "plot_ok", vars);
+      this.dim('"burn" goes at full thrust. "burn eco" is gentler: far less fuel, about twice the time, harder on the hull.');
     }
     burn(arg) {
       const s = this.state;
@@ -3008,14 +3208,16 @@ input, textarea {
         return;
       }
       if (s.ship.hull - c.hullLoss < TUNE.HULL_FLOOR) {
-        this.mindSays("No. The hull would not survive it, and I am the hull. Mend first, or find more shield.");
+        s.mind.refused = (s.mind.refused ?? 0) + 1;
+        this.say(s.mind.refused > 1 ? "refuse_again" : "refuse");
         return;
       }
       const lowFuel = c.fuelAfter < 6 && to.giants === 0;
       if (c.breach >= 3 || lowFuel) {
-        this.say("dissent");
-        s.mind.dissent = { where: this.nameOf(s.at), reason: c.breach >= 3 ? "shield" : "fuel", hull: s.ship.hull };
         s.mind.overruled++;
+        const n = s.mind.overruled;
+        this.say((s.mind.streak ?? 0) >= 4 ? "dissent_weary" : n >= 3 ? "dissent_again" : "dissent", { n, last: n - 1 });
+        s.mind.dissent = { where: this.nameOf(s.at), reason: c.breach >= 3 ? "shield" : "fuel", hull: s.ship.hull };
         this.note(`${MIND_NAMES[s.mind.name].name} dissented from the burn out of ${this.nameOf(s.at)}.`);
       }
       const total = from.discoveries.length;
@@ -3069,7 +3271,7 @@ input, textarea {
       s.plot = void 0;
       s.chart = [];
       s.crews = s.crews.map(() => null);
-      s.visit = { arrived: s.tShip, provisioned: false, slow: false, long: false, hinted: false, idle: false, starShown: true, lastAdvice: "" };
+      s.visit = { arrived: s.tShip, provisioned: false, slow: false, long: false, hinted: false, idle: false, starShown: true, lastAdvice: "", plots: 0 };
       const known = s.mem[sys.ref.id];
       const gap = known ? s.tGal - known.last : 0;
       if (known) {
@@ -3090,8 +3292,15 @@ input, textarea {
       if (d) {
         const lost = Math.round(d.hull - s.ship.hull);
         const right = d.reason === "shield" ? lost >= 3 : this.fuelPct < 6 && sys.giants === 0;
-        this.say(right ? "reckon_right" : "reckon_wrong", { where: d.where, hull: lost });
+        const before = s.mind.streak ?? 0;
+        s.mind.streak = right ? Math.max(1, before + 1) : Math.min(-1, before - 1);
+        const run = Math.abs(s.mind.streak);
+        const pool = right ? run >= 2 ? "reckon_right_streak" : "reckon_right" : run >= 2 ? "reckon_wrong_streak" : "reckon_wrong";
+        this.say(pool, { where: d.where, hull: lost, n: run });
         s.mind.dissent = void 0;
+      }
+      if (this.throttled) {
+        this.out.push({ k: "alert", s: `The Wrights have throttled the drive to ${Math.round(TUNE.THROTTLE * 100)}% until the hull is back above ${TUNE.HULL_THROTTLE}%.` });
       }
       if (!known && sys.star === s.mind.fancy) this.say("fancy_thanks");
       if (s.ship.hull < 50) this.say("warn_hull", { hull: Math.round(s.ship.hull) });
@@ -3172,7 +3381,7 @@ input, textarea {
         ` hold    ${gauge(s.ship.materials / hold)} ${Math.round(s.ship.materials)}/${hold}`,
         ` archive ${s.ship.archive}`,
         "",
-        ` engine ${level(s, "engine")} g \xB7 hull grade ${level(s, "hull")}`,
+        ` engine ${level(s, "engine")} g${this.throttled ? " (throttled)" : ""} \xB7 hull grade ${level(s, "hull")}`,
         ` tanks ${level(s, "tanks")} burn-yr \xB7 optics x${level(s, "optics")}`,
         ` crews ${s.crews.length}`,
         ` cruise here: gamma ${cruiseGamma(this.drive, 1, n).toFixed(1)} in ${Galaxy.gasWord(n)} gas`,
@@ -3262,9 +3471,12 @@ input, textarea {
     }
     help() {
       this.pre([
+        " the loop: sweep, put crews to work, stay;",
+        " then chart, plot and burn",
+        "",
         " here",
         "  sweep       first look at this system",
-        "  look        show it again",
+        "  look        the system table again (map)",
         "  ops         crews and the work on offer",
         "  scoop N     fuel from a giant (0 = star)",
         "  ice N       rebuild the shield",
@@ -3276,9 +3488,11 @@ input, textarea {
         "  stay [30]   let days pass (d w m y)",
         " away",
         "  chart       neighbouring systems",
+        "  gas         the wider sky, with its gas",
         "  scope N     what the telescope sees",
         "  plot N      what going there costs",
-        "  burn [eco]  go",
+        "  burn        go, at full thrust",
+        "  burn eco    go gently: frugal and slow",
         " the ship",
         "  ask         what the Mind thinks",
         "  ship        condition and clocks",

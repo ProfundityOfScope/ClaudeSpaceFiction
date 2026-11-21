@@ -73,6 +73,8 @@ export interface State {
     /** The star has already been described this visit. */
     starShown: boolean;
     lastAdvice: string;
+    /** Courses plotted this visit; the Mind only comments on the first unremarkable one. */
+    plots?: number;
   };
   mem: Record<string, Memory>;
   /** How many times each kind of feature has been logged; also star kinds, as "star:M". */
@@ -85,6 +87,8 @@ export interface State {
   stats: { jumps: number; ly: number; systems: number; finds: number };
   /** Name of the system where the navigator woke. */
   home: string;
+  /** Step of the first-visit walkthrough. Absent once it is over, and in saves from before it existed. */
+  guide?: number;
 }
 
 export function level(state: State, track: RefitTrack): number {
@@ -154,5 +158,6 @@ export function freshState(galaxy: Galaxy, seed: number): State {
     chart: [],
     stats: { jumps: 0, ly: 0, systems: 1, finds: 0 },
     home: sys.name,
+    guide: 0,
   };
 }

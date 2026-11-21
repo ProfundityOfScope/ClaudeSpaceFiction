@@ -43,6 +43,9 @@ function run(command: string): Out[] {
 if (transcript) console.log(game.intro().map((o) => o.s).join('\n'));
 
 const stays: number[] = [];
+let ecoBurns = 0;
+let longest = 0;
+let lowestHull = 100;
 const refitLog: string[] = [];
 let stuck = '';
 
@@ -65,25 +68,44 @@ for (let j = 0; j < jumps && !stuck; j++) {
   stays.push(game.state.tShip - arrived);
 
   // Choose where to go: oddities first, then the nearest unvisited star we can afford.
-  const chart = run('chart');
+  // Every sixth jump, look at the wider sky instead and try for the farthest bright star.
+  const far = j % 6 === 5;
+  const chart = run(far ? 'gas' : 'chart');
   const rows = (chart.find((o) => o.k === 'pre')?.s ?? '').split('\n').filter((r) => /^ ?\d+[ *] /.test(r));
   const options = rows.map((r) => ({ n: Number(r.slice(0, 2)), visited: r[2] === '*', odd: r.trimEnd().endsWith('!') }));
-  const order = [...options.filter((o) => o.odd && !o.visited), ...options.filter((o) => !o.visited && !o.odd), ...options.filter((o) => o.visited)];
+  const fresh = options.filter((o) => !o.visited);
+  const order = far
+    ? [...fresh].reverse()
+    : [...fresh.filter((o) => o.odd), ...fresh.filter((o) => !o.odd), ...options.filter((o) => o.visited)];
   let gone = false;
   // First pass wants a comfortable arrival; the second takes any trip the tanks allow.
   for (const strict of [true, false]) {
-    for (const choice of order.slice(0, 8)) {
+    for (const choice of order.slice(0, 9)) {
       if (gone) break;
       const plot = run(`plot ${choice.n}`).find((o) => o.k === 'pre')?.s ?? '';
-      const hard = /arrive hard: fuel (\d+)% shield (\d+)%/.exec(plot);
-      const eco = /arrive eco:  fuel (\d+)% shield (\d+)%/.exec(plot);
+      const read = (label: string) => {
+        const m = new RegExp(`^ ${label}\\s+(-?\\d+)%\\s+(-?\\d+)%\\s+(-?\\d+)%`, 'm').exec(plot);
+        return m ? { fuel: Number(m[1]), shield: Number(m[2]), hull: Number(m[3]) } : null;
+      };
+      const hard = read('hard');
+      const eco = read('eco');
       let mode = '';
-      if (strict) mode = hard && Number(hard[1]) >= 20 && Number(hard[2]) >= 10 ? 'burn' : eco && Number(eco[1]) >= 12 && Number(eco[2]) >= 5 ? 'burn eco' : '';
-      else mode = eco ? 'burn eco' : hard ? 'burn' : '';
+      if (strict) {
+        if (hard && hard.fuel >= 20 && hard.shield >= 10 && hard.hull >= 50) mode = 'burn';
+        else if (eco && eco.fuel >= 10 && eco.shield >= 5 && eco.hull >= 50) mode = 'burn eco';
+      } else {
+        mode = eco ? 'burn eco' : hard ? 'burn' : '';
+      }
       if (!mode) continue;
       const before = game.state.at;
+      const lyBefore = game.state.stats.ly;
       run(mode);
       gone = game.state.at !== before;
+      if (gone) {
+        if (mode === 'burn eco') ecoBurns++;
+        longest = Math.max(longest, game.state.stats.ly - lyBefore);
+        lowestHull = Math.min(lowestHull, game.state.ship.hull);
+      }
     }
   }
   if (!gone) stuck = `stuck at jump ${j} (${game.status().system}): no affordable destination`;
@@ -98,7 +120,8 @@ const report = [
   '==== flight summary ====',
   `seed ${seed} · ${s.stats.jumps} jumps · ${commands} commands · ${s.stats.systems} systems · ${Math.round(s.stats.ly)} ly`,
   `aboard ${s.tShip.toFixed(1)} yr · outside ${s.tGal.toFixed(1)} yr`,
-  `mean stay ${(mean(stays) * 12).toFixed(1)} months · mean hop ${(s.stats.ly / Math.max(1, s.stats.jumps)).toFixed(1)} ly`,
+  `mean stay ${(mean(stays) * 12).toFixed(1)} months · mean hop ${(s.stats.ly / Math.max(1, s.stats.jumps)).toFixed(1)} ly · longest ${longest.toFixed(0)} ly`,
+  `economy burns ${ecoBurns} of ${s.stats.jumps} · lowest hull on arrival ${Math.round(lowestHull)}%`,
   `archive ${s.ship.archive} · finds ${s.stats.finds} · relics ${s.ship.relics.length}`,
   `ship: fuel ${Math.round(game.status().fuel)}% shield ${Math.round(s.ship.shield)}% hull ${Math.round(s.ship.hull)}% hold ${Math.round(s.ship.materials)}`,
   `levels: ${Object.entries(s.ship.levels).map(([k, v]) => `${k} ${v}`).join(', ')}`,

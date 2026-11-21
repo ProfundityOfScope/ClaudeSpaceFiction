@@ -9,7 +9,7 @@ import { Galaxy, type Seen } from './galaxy.ts';
 import { STARS, bodyLabel, bodyRef, generateSystem, renderFeature, starLine, type Body, type Discovery, type StarSystem } from './system.ts';
 import { FEATURES, RARITY_WORD } from './features.ts';
 import { cruiseGamma, planLeg, type Leg } from './travel.ts';
-import { speak } from './mind.ts';
+import { GUIDE, fill, speak } from './mind.ts';
 import { strHash } from './rng.ts';
 import { MIND_NAMES } from './words.ts';
 import { capital, clock, gauge, lpad, ly, pad, span, spanWords } from './format.ts';
@@ -43,7 +43,29 @@ const ALIASES: Record<string, string> = {
   l: 'look', sw: 'sweep', o: 'ops', s: 'stay', wait: 'stay', c: 'chart', sc: 'scope', p: 'plot',
   b: 'burn', go: 'burn', a: 'ask', st: 'ship', status: 'ship', j: 'log', journal: 'log', h: 'help', '?': 'help',
   cut: 'ice', stop: 'recall', idle: 'recall', codex: 'finds', upgrades: 'refits', fix: 'repair',
+  map: 'look', system: 'look', sys: 'look', jump: 'burn', nav: 'chart', crews: 'ops', crew: 'ops', work: 'ops',
+  far: 'gas', wide: 'gas', lanes: 'gas',
 };
+const VERBS = [
+  'look', 'sweep', 'ops', 'scoop', 'ice', 'mine', 'survey', 'scan', 'repair', 'recall', 'stay', 'chart', 'gas',
+  'scope', 'plot', 'burn', 'drift', 'ask', 'ship', 'refits', 'refit', 'log', 'finds', 'name', 'help',
+];
+
+/** How many single-letter edits turn one word into another. */
+function editDistance(a: string, b: string): number {
+  let row = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const next = [i];
+    for (let j = 1; j <= b.length; j++) {
+      next.push(Math.min(row[j] + 1, next[j - 1] + 1, row[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)));
+    }
+    row = next;
+  }
+  return row[b.length];
+}
+
+/** Gas density as a map character, thinnest first. */
+const shade = (n: number) => (n >= 10 ? '#' : n >= 1.2 ? '%' : n >= 0.2 ? ':' : n >= 0.03 ? '.' : ' ');
 
 export class Game {
   readonly galaxy: Galaxy;
@@ -109,8 +131,13 @@ export class Game {
     return level(this.state, 'tanks');
   }
 
+  /** The Wrights throttle the drive when the hull is badly damaged. */
+  private get throttled(): boolean {
+    return this.state.ship.hull < TUNE.HULL_THROTTLE;
+  }
+
   private get drive() {
-    return { thrust: level(this.state, 'engine'), hull: level(this.state, 'hull') };
+    return { thrust: level(this.state, 'engine') * (this.throttled ? TUNE.THROTTLE : 1), hull: level(this.state, 'hull') };
   }
 
   private get fuelPct(): number {
@@ -164,7 +191,8 @@ export class Game {
       `We are in orbit at ${sys.name}, ${where}. Tanks at ${Math.round(this.fuelPct)}%. The drive is the one we were launched with, which is to say modest.`,
     );
     this.mindSays('The stars are close together here. I suggest we learn the neighbourhood before we try anything long.');
-    this.dim('Type a command or tap one below. "sweep" looks at this system. "help" lists everything.');
+    if (this.state.guide !== undefined) this.mindSays(GUIDE.start);
+    this.dim('Type a command or tap one below: "sweep" to begin. "help" lists them all.');
     return this.out;
   }
 
@@ -185,6 +213,7 @@ export class Game {
       case 'recall': this.recall(arg); break;
       case 'stay': this.stay(arg); break;
       case 'chart': this.chart(); break;
+      case 'gas': this.gas(); break;
       case 'scope': this.scope(arg); break;
       case 'plot': this.plot(arg); break;
       case 'burn': this.burn(arg); break;
@@ -197,11 +226,51 @@ export class Game {
       case 'finds': this.finds(); break;
       case 'name': this.rename(arg); break;
       case 'help': this.help(); break;
-      default:
-        this.text(`"${first}" is not something I know how to do. "help" lists what is.`);
+      default: {
+        const near = VERBS.map((v) => ({ v, d: editDistance(verb, v) })).sort((a, b) => a.d - b.d)[0];
+        const guess = near.d <= 2 && near.d < verb.length ? ` Did you mean "${near.v}"?` : '';
+        this.text(`"${first}" is not something I know how to do.${guess} "help" lists what is.`);
+      }
     }
     this.lastVerb = verb;
+    this.guide(verb);
     return this.out;
+  }
+
+  /**
+   * The first visit of a new voyage: the Mind explains each step once, as the
+   * navigator reaches it, and then stops for good. Driven by what has
+   * actually happened, so steps taken out of order are simply skipped.
+   */
+  private guide(verb: string) {
+    const s = this.state;
+    if (s.guide === undefined) return;
+    if (s.stats.jumps > 0) {
+      this.mindSays(GUIDE.done);
+      s.guide = undefined;
+    } else if (s.guide === 0 && this.mem.swept) {
+      const giant = this.here.bodies.filter((b) => b.fuel > 0).sort((a, b) => b.fuel - a.fuel)[0];
+      if (giant) {
+        this.mindSays(fill(GUIDE.swept, { where: capital(bodyRef(this.here, giant.n)) }));
+        this.dim(fill(GUIDE.sweptHint, { n: giant.n }));
+      } else {
+        this.mindSays(GUIDE.sweptBare);
+        this.dim(GUIDE.sweptBareHint);
+      }
+      s.guide = 1;
+    } else if (s.guide === 1 && s.crews.some((c) => c !== null)) {
+      this.mindSays(GUIDE.working);
+      this.dim(GUIDE.workingHint);
+      s.guide = 2;
+    } else if (s.guide === 2 && verb === 'stay' && s.tShip > 0) {
+      this.mindSays(GUIDE.stayed);
+      this.dim(GUIDE.stayedHint);
+      s.guide = 3;
+    } else if (s.guide <= 3 && (verb === 'chart' || verb === 'gas') && s.chart.length) {
+      this.mindSays(GUIDE.charted);
+      this.dim(GUIDE.chartedHint);
+      s.guide = 4;
+    }
   }
 
   status(): Status {
@@ -224,10 +293,10 @@ export class Game {
   chips(): string[] {
     const s = this.state;
     if (!this.mem.swept) return ['sweep', 'chart', 'ship', 'ask', 'help'];
-    if (this.lastVerb === 'chart' && s.chart.length) {
-      return [...s.chart.slice(0, 5).map((_, i) => `plot ${i + 1}`), 'scope 1', 'ops'];
+    if ((this.lastVerb === 'chart' || this.lastVerb === 'gas') && s.chart.length) {
+      return [...s.chart.slice(0, 5).map((_, i) => `plot ${i + 1}`), 'scope 1', this.lastVerb === 'gas' ? 'chart' : 'gas', 'look'];
     }
-    if ((this.lastVerb === 'plot' || this.lastVerb === 'scope') && s.plot) return ['burn', 'burn eco', 'chart', 'ops'];
+    if ((this.lastVerb === 'plot' || this.lastVerb === 'scope') && s.plot) return ['burn', 'burn eco', 'chart', 'look'];
     const chips: string[] = [];
     if (s.crews.some((c) => c === null)) {
       for (const job of this.suggestions()) if (chips.length < 3) chips.push(job);
@@ -235,7 +304,10 @@ export class Game {
     if (s.crews.some((c) => c !== null)) chips.push('stay', 'stay 30');
     const refitReady = (Object.keys(REFITS) as RefitTrack[]).some((t) => this.refitState(t) === 'ready');
     if (refitReady && s.crews.some((c) => c === null)) chips.push('refits');
-    chips.push('ops', 'chart', 'ask', 'ship');
+    // The same five always close the row, so they are where the thumb expects them.
+    chips.push('look', 'ops', 'chart', 'ship', 'ask');
+    // While the walkthrough is pointing at the chart, put it first.
+    if (s.guide === 3) return ['chart', ...chips.filter((c) => c !== 'chart')];
     return chips;
   }
 
@@ -698,6 +770,7 @@ export class Game {
               const info = REFITS[track];
               this.good(`Day ${day}. Refit complete: ${info.label.toLowerCase()} now ${level(s, track)}${info.unit ? ` ${info.unit}` : ''}.`);
               this.note(`Refit at ${this.nameOf(s.at)}: ${info.label.toLowerCase()} ${level(s, track)}.`);
+              if (track === 'tanks') this.dim(`Bigger tanks, the same fuel: the gauge now reads ${Math.round(this.fuelPct)}%.`);
               this.say('refit_done');
               s.crews[i] = null;
               if (auto) stop = true;
@@ -786,7 +859,7 @@ export class Game {
     grid[6][20] = '@';
 
     const lines = grid.map((row) => row.join('').trimEnd());
-    lines.push('', ' #  system              ly star  sees');
+    lines.push('', ' #  system             ly g star  sees');
     const nearRange = strata[0].sight * optics;
     listed.forEach((x, i) => {
       const sys = this.system(x.ref.id);
@@ -794,10 +867,13 @@ export class Game {
       let sees = '?';
       if (visited?.swept || x.dist <= nearRange) sees = `${'O'.repeat(Math.min(3, sys.giants)) || '-'} ${'~'.repeat(sys.dust) || '-'}`;
       if (x.dist <= oddRange && this.unresolvedAnomaly(x.ref.id)) sees += ' !';
-      lines.push(`${lpad(String(i + 1), 2)}${visited ? '*' : ' '} ${pad(this.nameOf(x.ref.id), 16)}${lpad(ly(x.dist), 5)} ${pad(STARS[sys.star].code, 5)} ${sees}`);
+      // One character for the gas on the way there, in the map's own shading.
+      const way = shade(planLeg(this.galaxy, here, x.ref, this.drive, 1).gasMean).replace(' ', '_');
+      lines.push(`${lpad(String(i + 1), 2)}${visited ? '*' : ' '} ${pad(this.nameOf(x.ref.id), 15)}${lpad(ly(x.dist), 5)} ${way} ${pad(STARS[sys.star].code, 5)} ${sees}`);
     });
     this.pre(lines);
     this.dim(`map: @ us, : dense gas, % cloud, edge at ${ly(radius)} ly`);
+    this.dim('g: gas on the way (_ void, . thin, : moderate, % dense, # cloud)');
     this.dim('sees: O giants, ~ belts and comets, ! oddity, * been there');
 
     const fancy = listed.findIndex((x) => this.system(x.ref.id).star === s.mind.fancy && !s.mem[x.ref.id]);
@@ -805,6 +881,57 @@ export class Game {
       s.mind.said.push(`fancy:${listed[fancy].ref.id}`);
       this.say('fancy_seen', { kind: STARS[s.mind.fancy].name, dist: `${ly(listed[fancy].dist)} light-years`, n: fancy + 1 });
     }
+  }
+
+  /** The wider sky: where the gas is thick and thin, and the bright stars to steer by. */
+  private gas() {
+    const s = this.state;
+    const here = this.here.ref;
+    const optics = level(s, 'optics');
+    const radius = 100 * optics;
+    const cols = 41;
+    const rows = 13;
+    const grid: string[][] = [];
+    for (let r = 0; r < rows; r++) {
+      const row: string[] = [];
+      for (let c = 0; c < cols; c++) {
+        // A character is much taller than it is wide, so look at three points down it and keep the thickest.
+        let n = 0;
+        for (const dr of [-0.33, 0, 0.33]) {
+          n = Math.max(n, this.galaxy.gas(here.x + ((c - 20) / 20) * radius, here.y + ((6 - r + dr) / 6) * radius));
+        }
+        row.push(shade(n));
+      }
+      grid.push(row);
+    }
+    const bright = this.galaxy
+      .near(here.x, here.y, optics)
+      .filter((x) => x.ref.id !== here.id && x.ref.stratum >= 2 && x.dist <= radius)
+      .slice(0, 9);
+    bright.forEach((x, i) => {
+      const c = 20 + Math.round(((x.ref.x - here.x) / radius) * 20);
+      const r = 6 - Math.round(((x.ref.y - here.y) / radius) * 6);
+      if (r >= 0 && r < rows && c >= 0 && c < cols) grid[r][c] = String(i + 1);
+    });
+    grid[6][20] = '@';
+    const lines = grid.map((row) => row.join('').trimEnd());
+    if (bright.length) {
+      s.chart = bright.map((x) => x.ref.id);
+      lines.push('', ' #  system             ly star  way');
+      bright.forEach((x, i) => {
+        const sys = this.system(x.ref.id);
+        const leg = planLeg(this.galaxy, here, x.ref, this.drive, 1);
+        const way = `${Galaxy.gasWord(leg.gasMean)}${leg.gasMax >= 10 && leg.gasMean < 10 ? ', cloud' : ''}`;
+        lines.push(`${lpad(String(i + 1), 2)}${s.mem[x.ref.id] ? '*' : ' '} ${pad(this.nameOf(x.ref.id), 15)}${lpad(ly(x.dist), 5)} ${pad(STARS[sys.star].code, 5)} ${way}`);
+      });
+    }
+    this.pre(lines);
+    this.dim(`gas: blank void, . thin, : moderate, % dense, # cloud · @ us · edge at ${ly(radius)} ly`);
+    this.dim(
+      bright.length
+        ? 'Thin gas is fast going; a cloud is a wall. These are the bright stars in range, and "plot" works on their numbers.'
+        : `Thin gas is fast going; a cloud is a wall. No bright stars within ${ly(radius)} light-years.`,
+    );
   }
 
   /** A system with something odd in it that we have not yet resolved. */
@@ -862,11 +989,12 @@ export class Game {
   private cost(leg: Leg) {
     const s = this.state;
     const breach = Math.max(0, leg.shield - s.ship.shield) * TUNE.BREACH;
-    const hullLoss = TUNE.JUMP_WEAR + breach + TUNE.AGE_WEAR * leg.ship;
+    const hullLoss = TUNE.JUMP_WEAR + breach + TUNE.TRANSIT_WEAR * leg.ship;
     return {
       fuelPct: (100 * leg.fuel) / this.tank,
       fuelAfter: this.fuelPct - (100 * leg.fuel) / this.tank,
       shieldAfter: Math.max(0, s.ship.shield - leg.shield),
+      hullAfter: s.ship.hull - hullLoss,
       breach,
       hullLoss,
     };
@@ -882,29 +1010,34 @@ export class Game {
     const eco = planLeg(this.galaxy, here, sys.ref, this.drive, TUNE.ECO);
     const ch = this.cost(hard);
     const ce = this.cost(eco);
-    const row = (label: string, leg: Leg, c: ReturnType<Game['cost']>) =>
-      ` ${pad(label, 5)}${lpad(span(leg.ship), 8)}${lpad(span(leg.galaxy), 9)}${lpad(`-${Math.round(c.fuelPct)}%`, 7)}${lpad(`-${Math.round(Math.min(leg.shield, 999))}%`, 8)}`;
-    const after = (c: ReturnType<Game['cost']>) => (c.fuelAfter < 0 ? 'no fuel' : `fuel ${Math.round(c.fuelAfter)}% shield ${Math.round(c.shieldAfter)}%`);
+    const time = (label: string, leg: Leg) => ` ${pad(label, 9)}${lpad(span(leg.ship), 8)}${lpad(span(leg.galaxy), 10)}`;
+    const after = (label: string, c: ReturnType<Game['cost']>) =>
+      c.fuelAfter < 0
+        ? ` ${pad(label, 9)}  not enough fuel`
+        : ` ${pad(label, 9)}${lpad(`${Math.round(c.fuelAfter)}%`, 6)}${lpad(`${Math.round(c.shieldAfter)}%`, 8)}${lpad(`${Math.max(0, Math.round(c.hullAfter))}%`, 7)}`;
     this.pre([
       ` to ${this.nameOf(sys.ref.id)} · ${ly(hard.dist)} ly · gas ${Galaxy.gasWord(hard.gasMean)}`,
       '',
-      '        aboard  outside   fuel  shield',
-      row('hard', hard, ch),
-      row('eco', eco, ce),
+      '            aboard   outside',
+      time('hard', hard),
+      time('eco', eco),
       '',
-      ` arrive hard: ${after(ch)}`,
-      ` arrive eco:  ${after(ce)}`,
+      ' arriving   fuel  shield   hull',
+      after('hard', ch),
+      after('eco', ce),
     ]);
 
     const vars = { fuel: Math.max(0, Math.round(ch.fuelAfter)), hull: Math.round(ch.breach), ship: spanWords(hard.ship), outside: spanWords(hard.galaxy), gas: Galaxy.gasWord(hard.gasMean) };
+    // The Mind speaks up when there is something to flag. Otherwise it comments on the first plot of a visit and then keeps quiet.
+    const quiet = (s.visit.plots ?? 0) > 0;
+    s.visit.plots = (s.visit.plots ?? 0) + 1;
     if (ch.fuelAfter < 0) this.say(ce.fuelAfter < 0 ? 'plot_nothing' : 'plot_nofuel');
     else if (ch.breach >= 2) this.say('plot_shield', vars);
     else if (hard.gasMax >= 10) this.say('plot_cloud');
     else if (ch.fuelAfter < 15) this.say('plot_tight', vars);
     else if (hard.ship > 5) this.say('plot_long', vars);
-    else if (hard.gasMean < 0.2) this.say('plot_thin');
-    else this.say('plot_ok', vars);
-    this.dim('"burn" goes at full thrust, "burn eco" at a quarter.');
+    else if (!quiet) this.say(hard.gasMean < 0.2 ? 'plot_thin' : 'plot_ok', vars);
+    this.dim('"burn" goes at full thrust. "burn eco" is gentler: far less fuel, about twice the time, harder on the hull.');
   }
 
   private burn(arg: string) {
@@ -927,16 +1060,19 @@ export class Game {
       return;
     }
     if (s.ship.hull - c.hullLoss < TUNE.HULL_FLOOR) {
-      this.mindSays('No. The hull would not survive it, and I am the hull. Mend first, or find more shield.');
+      s.mind.refused = (s.mind.refused ?? 0) + 1;
+      this.say(s.mind.refused > 1 ? 'refuse_again' : 'refuse');
       return;
     }
 
     // The Mind objects, formally, to burns it expects to hurt.
     const lowFuel = c.fuelAfter < 6 && to.giants === 0;
     if (c.breach >= 3 || lowFuel) {
-      this.say('dissent');
-      s.mind.dissent = { where: this.nameOf(s.at), reason: c.breach >= 3 ? 'shield' : 'fuel', hull: s.ship.hull };
       s.mind.overruled++;
+      // It words the objection differently the more often it has had to make it.
+      const n = s.mind.overruled;
+      this.say((s.mind.streak ?? 0) >= 4 ? 'dissent_weary' : n >= 3 ? 'dissent_again' : 'dissent', { n, last: n - 1 });
+      s.mind.dissent = { where: this.nameOf(s.at), reason: c.breach >= 3 ? 'shield' : 'fuel', hull: s.ship.hull };
       this.note(`${MIND_NAMES[s.mind.name].name} dissented from the burn out of ${this.nameOf(s.at)}.`);
     }
     // It also notices how we leave places.
@@ -994,7 +1130,7 @@ export class Game {
     s.plot = undefined;
     s.chart = [];
     s.crews = s.crews.map(() => null);
-    s.visit = { arrived: s.tShip, provisioned: false, slow: false, long: false, hinted: false, idle: false, starShown: true, lastAdvice: '' };
+    s.visit = { arrived: s.tShip, provisioned: false, slow: false, long: false, hinted: false, idle: false, starShown: true, lastAdvice: '', plots: 0 };
     const known = s.mem[sys.ref.id];
     const gap = known ? s.tGal - known.last : 0;
     if (known) {
@@ -1018,8 +1154,16 @@ export class Game {
     if (d) {
       const lost = Math.round(d.hull - s.ship.hull);
       const right = d.reason === 'shield' ? lost >= 3 : this.fuelPct < 6 && sys.giants === 0;
-      this.say(right ? 'reckon_right' : 'reckon_wrong', { where: d.where, hull: lost });
+      // Count how many times running it has been right, or wrong, and let that colour the remark.
+      const before = s.mind.streak ?? 0;
+      s.mind.streak = right ? Math.max(1, before + 1) : Math.min(-1, before - 1);
+      const run = Math.abs(s.mind.streak);
+      const pool = right ? (run >= 2 ? 'reckon_right_streak' : 'reckon_right') : run >= 2 ? 'reckon_wrong_streak' : 'reckon_wrong';
+      this.say(pool, { where: d.where, hull: lost, n: run });
       s.mind.dissent = undefined;
+    }
+    if (this.throttled) {
+      this.out.push({ k: 'alert', s: `The Wrights have throttled the drive to ${Math.round(TUNE.THROTTLE * 100)}% until the hull is back above ${TUNE.HULL_THROTTLE}%.` });
     }
     if (!known && sys.star === s.mind.fancy) this.say('fancy_thanks');
     if (s.ship.hull < 50) this.say('warn_hull', { hull: Math.round(s.ship.hull) });
@@ -1099,7 +1243,7 @@ export class Game {
       ` hold    ${gauge(s.ship.materials / hold)} ${Math.round(s.ship.materials)}/${hold}`,
       ` archive ${s.ship.archive}`,
       '',
-      ` engine ${level(s, 'engine')} g · hull grade ${level(s, 'hull')}`,
+      ` engine ${level(s, 'engine')} g${this.throttled ? ' (throttled)' : ''} · hull grade ${level(s, 'hull')}`,
       ` tanks ${level(s, 'tanks')} burn-yr · optics x${level(s, 'optics')}`,
       ` crews ${s.crews.length}`,
       ` cruise here: gamma ${cruiseGamma(this.drive, 1, n).toFixed(1)} in ${Galaxy.gasWord(n)} gas`,
@@ -1196,9 +1340,12 @@ export class Game {
 
   private help() {
     this.pre([
+      ' the loop: sweep, put crews to work, stay;',
+      ' then chart, plot and burn',
+      '',
       ' here',
       '  sweep       first look at this system',
-      '  look        show it again',
+      '  look        the system table again (map)',
       '  ops         crews and the work on offer',
       '  scoop N     fuel from a giant (0 = star)',
       '  ice N       rebuild the shield',
@@ -1210,9 +1357,11 @@ export class Game {
       '  stay [30]   let days pass (d w m y)',
       ' away',
       '  chart       neighbouring systems',
+      '  gas         the wider sky, with its gas',
       '  scope N     what the telescope sees',
       '  plot N      what going there costs',
-      '  burn [eco]  go',
+      '  burn        go, at full thrust',
+      '  burn eco    go gently: frugal and slow',
       ' the ship',
       '  ask         what the Mind thinks',
       '  ship        condition and clocks',

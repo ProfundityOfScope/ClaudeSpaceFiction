@@ -11,7 +11,7 @@ A text prototype of the game Lightspeed: a forever cruise on a relativistic worl
 - `main` = slice 1 plus the video renderer. `v0.1.0` tags slice 1 (commit 8461d87).
 - Public page: GitHub Pages serves `main` / `docs/`. Dev preview: a private Artifact named "Lightspeed", republished from `dist/artifact.html` (find it in the artifact list; pass its URL to update it in place).
 - Current branch of work: `claude/onboarding-and-tuning`. Next after it: slice 2.
-- Play-test 1 is in (below). The owner approved a trimmed plan for this branch: see "Now".
+- Play-test 1 is in (below). The trimmed plan for this branch is built and in a pull request, waiting for the owner to play it.
 
 ## What the owner wants (their steers, in order of weight)
 
@@ -41,7 +41,7 @@ Reactions to slice 1 so far: finding the worked stone at Ember 61 was the high p
 
 Two further items the owner named after play-test 1. They sit beside the slices; their order is not decided, so ask before starting either.
 
-- **ISRU improvements.** Gathering resources in place, made richer: different materials in different kinds of place, at different difficulty, and refits that need them. The owner likes the idea and wants it more evolved than a quick patch: "it's complex".
+- **ISRU improvements.** Gathering resources in place, made richer: different materials in different kinds of place, at different difficulty, and refits that need them. The owner likes the idea and wants it designed properly as a richer system, not patched in.
 - **Ship politics.** The management side: the three blocs, the mood aboard, and the incentive to move on. The owner is happy for this to be more severe and more important than a mild nudge.
 
 ### Play-test 1 (the owner, 30 minutes, 5 systems, 4 jumps)
@@ -59,15 +59,19 @@ Two further items the owner named after play-test 1. They sit beside the slices;
 - **Ideas offered for later:** very rare events, such as temporary bonuses to ship systems, or items that can be sold.
 - **One more jump?** "Sort of, hard to say yet."
 
-### Now: onboarding and tuning (approved)
+### Onboarding and tuning (built, awaiting the owner's play-test)
 
-1. **Onboarding.** The Mind walks the first visit in its own voice (sweep, assign, stay, chart, plot, burn), driven by state, then never again. Old saves skip it. Aliases `map` and `system` for `look`; a steadier set of buttons; "did you mean" for unknown commands.
-2. **Burns.** Fuel use goes as thrust squared, so the economy burn costs about an eighth of the fuel for about twice the time. Hard burns are unchanged. Time under way wears the hull, so the slow burn is not free: without that, economy would always win until ship politics gives time a real price.
-3. **Seeing the gas.** Three levels of shading on the chart map, and a wide view of gas and bright stars.
-4. **The Mind.** Quiet when it has nothing to flag on a plot. Escalating lines when it keeps being overruled, and when it keeps being right or wrong.
-5. Small: faster wind skimming, a note when a tank refit lowers the fuel percentage, a throttled drive when the hull is badly damaged.
+- **Onboarding.** `guide` in the save is the step of a first-visit walkthrough; the lines are `GUIDE` in `mind.ts` and the logic is `Game.guide`. It reacts to what has happened, so steps taken out of order are skipped, and it ends at the first arrival. Saves without the field are never walked through. Also: `map`/`system` for `look`, a fixed closing set of buttons (look, ops, chart, ship, ask), and "did you mean" on near misses.
+- **Burns.** Fuel is thrust squared times time under burn, so `burn eco` (a quarter thrust) costs roughly an eighth of the fuel for twice the time. `TRANSIT_WEAR` (1.5% hull per year under way) is the price of going slowly. The plot table now shows time for each burn and fuel, shield and hull on arrival.
+- **Gas.** `gas` draws the sky out to 100 ly (times optics) in five shades and lists the bright stars in range; `plot` works on its numbers. The chart has a one-character column for the gas on the way to each star.
+- **The Mind.** Comments only on the first unremarkable plot of a visit. Dissents change wording from the third, and go terse after four correct in a row (`streak`). Reckonings name the run. Refusals escalate (`refused`).
+- **Small.** Wind skimming doubled. A note when bigger tanks lower the fuel percentage. Below 40% hull the drive is throttled to 70%.
 
-Deliberately not on this branch: any incentive to move on. That belongs to ship politics (mood) and ISRU (ore that runs out).
+Bot, 200 jumps on three seeds after these changes: no dead ends; longest hop about 90 ly; economy burns on 2 to 5% of jumps; lowest hull on arrival 62 to 75%. Refit pacing is unchanged and still too easy; that is ISRU's job.
+
+Not addressed here, on purpose: any incentive to move on (ship politics; ISRU for ore that runs out).
+
+Things to ask after the next play-test: is economy now worth choosing; is the hull cost of a slow burn noticeable; does the wide gas view make gas readable; did the walkthrough help or get in the way.
 
 ### ISRU improvements: thinking so far
 
