@@ -8,10 +8,10 @@ A text prototype of the game Lightspeed: a forever cruise on a relativistic worl
 
 ## Where things stand
 
-- `main` = slice 1 plus the video renderer. `v0.1.0` tags slice 1 (commit 8461d87).
+- `main` = slice 1, the video renderer, onboarding and tuning, and the pixel maps. `v0.1.0` tags slice 1 (commit 8461d87). Nothing since has been tagged; suggest `v0.1.1` or fold it into `v0.2.0`.
 - Public page: GitHub Pages serves `main` / `docs/`. Dev preview: a private Artifact named "Lightspeed", republished from `dist/artifact.html` (find it in the artifact list; pass its URL to update it in place).
-- Current branch of work: `claude/onboarding-and-tuning`. Next after it: slice 2.
-- Play-test 1 is in (below). The trimmed plan for this branch is built and in a pull request, waiting for the owner to play it.
+- Current branch of work: `claude/civilisations` (slice 2). A proposal has been put to the owner; do not build until they approve it.
+- Not yet heard: how the onboarding, the economy burn and the gas views played. Ask.
 
 ## What the owner wants (their steers, in order of weight)
 
@@ -94,13 +94,30 @@ Things to ask after the next play-test: is economy now worth choosing; is the hu
 - With more weight it could gate things: a bloc refusing a crew, a refit, or a burn; the Mind mediating; the navigator spending standing to overrule.
 - The transit wear added on this branch is a stopgap for "time has a price". Revisit it when this lands.
 
-### Slice 2 design, as far as it is thought through
+### Slice 2: what the owner has decided
 
-- **A civilisation is a seeded birth** in a coarse space-time cell: origin system, birth year, temperament genes (expansion, aggression, openness, cohesion, longevity), growth rate, maximum reach (light-lag limited, tens of ly typical, a few hundred at most), lifespan. Then `whoHolds(place, year)` and `phaseOf(civ, year)` are closed-form. Nothing is simulated between visits.
-- **Ruins fall out**: any system a dead civilisation used to reach. Attribute the existing relic finds to a civilisation with a name and an age.
-- **Species and names** from a grammar; invented-syllable names belong to civilisations, plain nouns to stars.
-- **Contact** is small: one exchange per visit, shaped by temperament and phase. **Trade** is wants and offers by tag, no prices. The Archive and carried relics are the currency; old records of a dead neighbour should be worth something.
-- New random streams get **new keys in `K`** (`rng.ts`). Never renumber.
+- **Density.** Cultures can be fairly prominent in the starting cluster, for testing and for the early game. Outside it they are rare by the numbers, about one system in a hundred, but not vanishingly rare.
+- **Ruins are derived, not tuned.** They are wherever a culture used to be. Their frequency follows from the population and its lifespans.
+- **Slow change is fine.** On the weak drive and short hops nothing much changes; long hauls are where turnover should be felt.
+- **Sameness comes later.** The tables of species, temperaments and lines will be fleshed out a lot afterwards, so build them as data that is easy to extend.
+- **Who is out there.** The ship carries humans, but not only humans. Nothing found out there is human.
+- **Consequences, but no death.** Hostility must cost something. The ship is well defended, and the Mind can override the navigator and force an emergency exit, possibly ending in a drift until rescue. The navigator never dies.
+- **Relics are not forever.** They can be picked up while a culture is in its stages, and they do not last indefinitely. Do not rewrite star generation to hold permanent relics. (Claude's reading: culture-derived ruins and relics are a separate layer computed from history, present for a limited window after a culture ends; the existing random relic finds stay as they are, as works of unknown makers.)
+
+### Slice 2 design (proposed)
+
+- **Generator, `civs.ts`, pure functions of (seed, place, year).**
+  - *Worlds*: single-system cultures, looked up per system. Each era of a few thousand years, a system with a suitable body may see a culture arise: a start year, a lifespan (centuries to a few millennia), temperament genes, an identity. Rate set so about 1% of field systems are inhabited at any time; old clusters get a multiplier, which is what makes the starting cluster busy.
+  - *Reaches*: the few cultures that spread. Seeded per coarse cell and era, each with a home system, a growth speed, a maximum radius (tens of light-years, rarely a couple of hundred) and a lifespan. A system inside a living Reach is held.
+  - *Phases* from age over lifespan: founding, rising, height, decline; then recent ruins, old ruins, nothing.
+  - New keys in `K`; star generation is not touched.
+- **Identity** from extendable tables: a short species sketch, a temperament, a name stem and a polity word. Nothing human.
+- **Seeing them.** In the heading and the sweep; a signal mark on the chart for loud cultures; a Reach's extent tinted on the wide map; `scope` says what the light shows.
+- **Contact.** They state terms on arrival (welcome, toll, keep out) by temperament, phase and how past visits went. Comply or ignore. Ignoring a strong culture escalates: warning, then damage, then the Mind takes the conn and burns for the nearest empty system. With dry tanks that becomes the long fall. Never a game over.
+- **Trade.** Each culture wants two things and offers two: materials, records by Archive category (each category once per culture), carried items; fuel, ice, repairs, help with a refit, charts that mark leads, their records, a keepsake. No prices.
+- **Ruins and relics.** A culture that ended within its ruin window leaves a site: noticed on the sweep or by survey, worth Archive, and a deep scan may yield an item once. After the window nothing remains.
+- **Memory.** Per system: who was here and in what phase at the last visit, so a return prints the difference. Per culture met: standing and what has been traded.
+- **Order of building**, each step playable: (a) the generator and seeing them, with a bot census to tune density; (b) contact and consequences; (c) trade, items and leads.
 
 ### Later slices, ideas held
 
