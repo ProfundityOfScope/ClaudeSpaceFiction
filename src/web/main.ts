@@ -4,7 +4,7 @@
  * It prints what the game returns, offers the suggested commands as buttons,
  * and keeps the voyage in this browser's storage (one slot per seed).
  */
-import { Game, type Out } from '../core/game.ts';
+import { Game, type MapData, type Out } from '../core/game.ts';
 import { DEMO } from '../core/config.ts';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -46,14 +46,117 @@ function seedFromUrl(): number {
   return Number.isInteger(n) && n > 0 && n < 2 ** 31 ? n : DEMO.seed;
 }
 
+// ---- maps: a small blocky picture, drawn once, in the page's own colours ----
+
+type Rgb = [number, number, number];
+
+/** The digits 0 to 9 as blocks three wide and five tall, read row by row. */
+const DIGITS = [
+  '111101101101111', '010110010010111', '111001111100111', '111001111001111', '101101111001001',
+  '111100111001111', '111100111101111', '111001001001001', '111101111101111', '111101111001111',
+];
+
+/** One of the page's colour tokens, as numbers. */
+function token(name: string): Rgb {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const hex = /^#([0-9a-f]{6})$/i.exec(raw)?.[1] ?? '808080';
+  return [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16)) as Rgb;
+}
+
+const blend = (a: Rgb, b: Rgb, t: number) => `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(',')})`;
+
+/** Draw a map one cell to a pixel; the page scales it up without smoothing, which keeps it blocky. */
+function drawMap(map: MapData): HTMLCanvasElement | null {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = map.size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  const bg = token('--bg');
+  const ink = token('--ink');
+  const tones = { warm: token('--alert'), gold: token('--good'), white: ink, cold: token('--mind') };
+  const cells = (color: string, points: number[][]) => {
+    ctx.fillStyle = color;
+    for (const [x, y] of points) ctx.fillRect(x, y, 1, 1);
+  };
+
+  // Gas as haze: the thicker the gas, the stronger the haze.
+  const haze = [0, 0.12, 0.27, 0.45, 0.68].map((t) => blend(bg, token('--dim'), t));
+  for (let i = 0; i < map.gas.length; i++) cells(haze[Number(map.gas[i])], [[i % map.size, Math.floor(i / map.size)]]);
+
+  // Stars: faint unnumbered ones first, so the numbered ones sit on top of them.
+  const m = map.size / 2;
+  type Box = [number, number, number, number];
+  const taken: Box[] = [[m - 2, m - 2, m + 2, m + 2]];
+  const numbered = map.stars.filter((star) => star.n).sort((a, b) => (a.n ?? 0) - (b.n ?? 0));
+  for (const star of [...map.stars.filter((star) => !star.n), ...numbered]) {
+    const { x, y } = star;
+    const color = blend(bg, tones[star.tone], star.n ? 1 : 0.55);
+    cells(color, [[x, y]]);
+    if (star.size >= 2) cells(color, [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]]);
+    if (star.size >= 3) cells(color, [[x + 2, y], [x - 2, y], [x, y + 2], [x, y - 2]]);
+    if (star.visited) cells(blend(bg, ink, 0.55), [[x - 1, y + star.size + 1], [x, y + star.size + 1], [x + 1, y + star.size + 1]]);
+    if (star.odd) cells(blend(bg, tones.warm, 1), [[x - 3, y - 2], [x - 3, y - 1], [x - 3, y], [x - 3, y + 2]]);
+    if (star.n) taken.push([x - star.size, y - star.size, x + star.size, y + star.size]);
+  }
+
+  // Numbers: beside each star, on whichever side is free.
+  const clash = (box: Box) => taken.some((t) => box[0] <= t[2] && box[2] >= t[0] && box[1] <= t[3] && box[3] >= t[1]);
+  for (const star of numbered) {
+    const text = String(star.n);
+    const width = text.length * 4 - 1;
+    const gap = star.size + 1;
+    // Tried in order: right, left, above, below, then the four corners.
+    const spots = [
+      [star.x + gap, star.y - 2],
+      [star.x - gap - width + 1, star.y - 2],
+      [star.x - Math.floor(width / 2), star.y - gap - 4],
+      [star.x - Math.floor(width / 2), star.y + gap],
+      [star.x + gap, star.y - gap - 4],
+      [star.x + gap, star.y + gap],
+      [star.x - gap - width + 1, star.y - gap - 4],
+      [star.x - gap - width + 1, star.y + gap],
+    ].map(([left, top]) => [Math.min(map.size - width - 1, Math.max(1, left)), Math.min(map.size - 6, Math.max(1, top))]);
+    const [left, top] = spots.find(([l, t]) => !clash([l, t, l + width - 1, t + 4])) ?? spots[0];
+    taken.push([left - 1, top - 1, left + width, top + 5]);
+    ctx.globalAlpha = 0.8;
+    ctx.fillStyle = blend(bg, bg, 0);
+    ctx.fillRect(left - 1, top - 1, width + 2, 7);
+    ctx.globalAlpha = 1;
+    [...text].forEach((digit, d) => {
+      const points: number[][] = [];
+      [...DIGITS[Number(digit)]].forEach((on, i) => on === '1' && points.push([left + d * 4 + (i % 3), top + Math.floor(i / 3)]));
+      cells(blend(bg, ink, 1), points);
+    });
+  }
+  // The ship goes on last so nothing hides it: a hollow square in the middle.
+  cells(blend(bg, bg, 0), [[m, m]]);
+  cells(blend(bg, tones.cold, 1), [[m - 1, m - 1], [m, m - 1], [m + 1, m - 1], [m - 1, m], [m + 1, m], [m - 1, m + 1], [m, m + 1], [m + 1, m + 1]]);
+  canvas.setAttribute('role', 'img');
+  canvas.setAttribute('aria-label', 'Map of the sky around the ship');
+  return canvas;
+}
+
 // ---- drawing ----
 
 function print(items: Out[]) {
   let first: HTMLElement | null = null;
   for (const item of items) {
-    const el = document.createElement(item.k === 'pre' ? 'pre' : 'p');
-    el.className = `o ${item.k} fresh`;
-    el.textContent = item.s;
+    let el: HTMLElement;
+    const picture = item.k === 'map' && item.map ? drawMap(item.map) : null;
+    if (picture && item.map) {
+      el = document.createElement('figure');
+      el.className = 'o map fresh';
+      const caption = document.createElement('figcaption');
+      const edge = item.map.radius < 10 ? item.map.radius.toFixed(1) : Math.round(item.map.radius);
+      caption.textContent = `edge at ${edge} ly · haze is gas, stronger is thicker · the hollow square is us`;
+      el.append(picture, caption);
+    } else {
+      // No picture: fall back to the same map in characters.
+      const block = item.k === 'pre' || item.k === 'map';
+      el = document.createElement(block ? 'pre' : 'p');
+      el.className = `o ${block ? 'pre' : item.k} fresh`;
+      el.textContent = item.s;
+    }
     log.appendChild(el);
     first ??= el;
   }

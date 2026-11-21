@@ -160,3 +160,21 @@ test('the Mind words a repeated objection differently, and remembers how they tu
   assert.ok(Math.abs(g.state.mind.streak ?? 0) >= 2, 'and it keeps a running tally of the outcomes');
   assert.ok([...heard].some((line) => /Dissent number|for the record|same as the last|with the others|Number \d/.test(line)));
 });
+
+test('chart and gas carry a map for the page to draw, and the same map in characters', () => {
+  const g = Game.fresh();
+  g.exec('sweep');
+  for (const command of ['chart', 'gas']) {
+    const item = g.exec(command).find((o) => o.k === 'map');
+    assert.ok(item?.map, `${command} emits a map`);
+    const { size, gas, stars, radius } = item.map;
+    assert.ok(radius > 0);
+    assert.equal(gas.length, size * size);
+    assert.match(gas, /^[0-4]+$/);
+    for (const star of stars) assert.ok(star.x >= 0 && star.x < size && star.y >= 0 && star.y < size);
+    const numbers = stars.filter((star) => star.n).map((star) => star.n);
+    assert.ok(numbers.length > 0, 'some stars are numbered');
+    assert.equal(new Set(numbers).size, numbers.length, 'and no number is used twice');
+    assert.ok(item.s.includes('@'), 'the character map is still there for a terminal');
+  }
+});

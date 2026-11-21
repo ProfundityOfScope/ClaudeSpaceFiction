@@ -25,6 +25,7 @@ node tools/play.ts sweep ops  # run some commands and exit
 - **Gas sets the speed.** In gas of density n the ship cruises at gamma = sqrt(1 + P / n), where P grows with engine thrust and hull grade. Thin gas is fast; clouds are walls for a young ship. `gas` shows the wider sky.
 - **Two ways to burn.** `burn` goes at full thrust. `burn eco` goes at a quarter: fuel use goes as thrust squared, so it is far cheaper, but it takes about twice as long and time under way wears the hull.
 - **A guided first visit.** On a new voyage the Mind explains each step once, then stops.
+- **Small maps.** In the browser, `chart` and `gas` draw a blocky little picture of the sky. A terminal shows the same map in characters.
 - **Refits.** Knowledge in the Archive unlocks them; materials and crew time pay for them.
 - **The Mind.** A written voice with its own tastes, a dissent it logs and later checks, and a habit of noticing how you leave places.
 

@@ -202,7 +202,7 @@ function build(scene: TimedScene): HTMLElement {
     }
     case 'console':
       (scene.outs ?? []).forEach((o, i) => {
-        const node = el(o.k === 'pre' ? 'pre' : 'p', `o ${o.k}`, o.s);
+        const node = el(o.k === 'pre' || o.k === 'map' ? 'pre' : 'p', `o ${o.k === 'map' ? 'pre' : o.k}`, o.s);
         root.append(node);
         const at = scene.start + 0.25 + i * 0.22;
         anims.push((t) => (node.style.opacity = String(ease((t - at) / 0.3))));
