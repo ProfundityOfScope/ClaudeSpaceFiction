@@ -73,6 +73,13 @@ Not addressed here, on purpose: any incentive to move on (ship politics; ISRU fo
 
 Things to ask after the next play-test: is economy now worth choosing; is the hull cost of a slow burn noticeable; does the wide gas view make gas readable; did the walkthrough help or get in the way.
 
+### Map pictures (built, in its own pull request on top of onboarding)
+
+- The owner asked for the smallest possible graphics for the star map: a static image, low-resolution and blocky, in the terminal's own look, and **not interactive yet**. Do not add tap-to-plot or anything else to it without asking.
+- How: `chart` and `gas` emit an output item of kind `map`. Its `s` is the character map (what a terminal and the bot see); its `map` is the data (`MapData` in `game.ts`): a 64 by 64 grid of gas levels and the stars inside it. `drawMap` in `src/web/main.ts` draws one cell per pixel in the page's colour tokens and CSS scales it up unsmoothed.
+- It is drawn once when printed. It does not redraw if the theme changes.
+- Resist drawing more (system diagrams, gauges) until asked: the prototype is for finding the fun in text.
+
 ### ISRU improvements: thinking so far
 
 - A first sketch, which the owner found too thin: three special materials as by-products of existing work. Metals from rich belts, isotopes from ice giants, exotics from the winds of unusual stars (giants, remnants, supergiants). Early refits need the local two; later levels need exotics, so they need a journey to a bright star on the chart.

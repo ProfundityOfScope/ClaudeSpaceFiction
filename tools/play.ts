@@ -31,7 +31,7 @@ function wrap(text: string, width = 72): string {
 }
 
 export function show(items: Out[]): string {
-  return items.map((o) => (o.k === 'pre' ? o.s : wrap(o.s))).join('\n');
+  return items.map((o) => (o.k === 'pre' || o.k === 'map' ? o.s : wrap(o.s))).join('\n');
 }
 
 const game = Game.fresh(seed);

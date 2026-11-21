@@ -6,7 +6,7 @@
  */
 import { DAYS, DEMO, REFITS, TUNE, refitCost, type GalaxyConfig, type RefitTrack } from './config.ts';
 import { Galaxy, type Seen } from './galaxy.ts';
-import { STARS, bodyLabel, bodyRef, generateSystem, renderFeature, starLine, type Body, type Discovery, type StarSystem } from './system.ts';
+import { STARS, bodyLabel, bodyRef, generateSystem, renderFeature, starLine, type Body, type Discovery, type StarKind, type StarSystem } from './system.ts';
 import { FEATURES, RARITY_WORD } from './features.ts';
 import { cruiseGamma, planLeg, type Leg } from './travel.ts';
 import { GUIDE, fill, speak } from './mind.ts';
@@ -16,11 +16,45 @@ import { capital, clock, gauge, lpad, ly, pad, span, spanWords } from './format.
 import { freshState, level, type Assignment, type Memory, type Op, type State } from './state.ts';
 
 /** echo: the player's own line. pre: fixed-width block. mind: the ship speaking. */
-export type OutKind = 'echo' | 'text' | 'pre' | 'mind' | 'head' | 'dim' | 'good' | 'alert';
+export type OutKind = 'echo' | 'text' | 'pre' | 'mind' | 'head' | 'dim' | 'good' | 'alert' | 'map';
 export interface Out {
   k: OutKind;
   s: string;
+  /** For a map: the numbers behind it, so a page can draw a picture. `s` is the same map in characters. */
+  map?: MapData;
 }
+
+/** A small square picture of the sky. */
+export interface MapData {
+  /** Cells along each side, and light-years from the centre to each edge. */
+  size: number;
+  radius: number;
+  /** Gas in each cell, row by row from the top: a digit from 0 (void) to 4 (cloud). */
+  gas: string;
+  stars: MapStar[];
+}
+
+export interface MapStar {
+  /** Cell coordinates, from the top left. */
+  x: number;
+  y: number;
+  /** Colour family, by kind of star. */
+  tone: 'warm' | 'gold' | 'white' | 'cold';
+  /** 1 for ordinary stars, 2 for bright ones, 3 for the rare giants and remnants. */
+  size: 1 | 2 | 3;
+  /** Its number in the list under the map, if it has one. */
+  n?: number;
+  visited?: boolean;
+  odd?: boolean;
+}
+
+const MAP_SIZE = 64;
+const TONE: Record<StarKind, MapStar['tone']> = {
+  M: 'warm', K: 'warm', BD: 'warm', RG: 'warm', RSG: 'warm',
+  G: 'gold', F: 'gold', SG: 'gold',
+  A: 'white', B: 'white', O: 'white', WR: 'white',
+  WD: 'cold', PSR: 'cold', BH: 'cold', MAG: 'cold',
+};
 
 export interface Status {
   mind: string;
@@ -65,7 +99,8 @@ function editDistance(a: string, b: string): number {
 }
 
 /** Gas density as a map character, thinnest first. */
-const shade = (n: number) => (n >= 10 ? '#' : n >= 1.2 ? '%' : n >= 0.2 ? ':' : n >= 0.03 ? '.' : ' ');
+const gasLevel = (n: number) => (n >= 10 ? 4 : n >= 1.2 ? 3 : n >= 0.2 ? 2 : n >= 0.03 ? 1 : 0);
+const shade = (n: number) => ' .:%#'[gasLevel(n)];
 
 export class Game {
   readonly galaxy: Galaxy;
@@ -813,6 +848,40 @@ export class Game {
 
   // ---- the chart and travel ----------------------------------------------
 
+  /**
+   * The numbers behind a map: gas in a square grid around the ship, and the
+   * stars that fall inside it. The page draws these; a terminal shows the
+   * character map instead.
+   */
+  private picture(radius: number, stars: { seen: Seen; n?: number; odd?: boolean }[]): MapData {
+    const here = this.here.ref;
+    const size = MAP_SIZE;
+    let gas = '';
+    for (let r = 0; r < size; r++) {
+      for (let c = 0; c < size; c++) {
+        const x = here.x + (((c + 0.5) / size) * 2 - 1) * radius;
+        const y = here.y + (1 - ((r + 0.5) / size) * 2) * radius;
+        gas += gasLevel(this.galaxy.gas(x, y));
+      }
+    }
+    const placed: MapStar[] = [];
+    for (const { seen, n, odd } of stars) {
+      const dx = (seen.ref.x - here.x) / radius;
+      const dy = (seen.ref.y - here.y) / radius;
+      if (Math.abs(dx) >= 1 || Math.abs(dy) >= 1) continue;
+      placed.push({
+        x: Math.floor(((dx + 1) / 2) * size),
+        y: Math.floor(((1 - dy) / 2) * size),
+        tone: TONE[this.system(seen.ref.id).star],
+        size: seen.ref.stratum >= 3 ? 3 : seen.ref.stratum === 2 ? 2 : 1,
+        n,
+        visited: this.state.mem[seen.ref.id] ? true : undefined,
+        odd: odd || undefined,
+      });
+    }
+    return { size, radius, gas, stars: placed };
+  }
+
   private chart() {
     const s = this.state;
     const here = this.here.ref;
@@ -858,8 +927,16 @@ export class Game {
     listed.forEach((x, i) => i < 9 && put(x, String(i + 1)));
     grid[6][20] = '@';
 
-    const lines = grid.map((row) => row.join('').trimEnd());
-    lines.push('', ' #  system             ly g star  sees');
+    const drawn = seen
+      .filter((x) => !listed.includes(x))
+      .map((x) => ({ seen: x }))
+      .concat(listed.map((x, i) => ({ seen: x, n: i + 1, odd: x.dist <= oddRange && this.unresolvedAnomaly(x.ref.id) })));
+    this.out.push({
+      k: 'map',
+      s: [...grid.map((row) => row.join('').trimEnd()), `map: @ us, : dense gas, % cloud, edge at ${ly(radius)} ly`].join('\n'),
+      map: this.picture(radius, drawn),
+    });
+    const lines = [' #  system             ly g star  sees'];
     const nearRange = strata[0].sight * optics;
     listed.forEach((x, i) => {
       const sys = this.system(x.ref.id);
@@ -872,7 +949,6 @@ export class Game {
       lines.push(`${lpad(String(i + 1), 2)}${visited ? '*' : ' '} ${pad(this.nameOf(x.ref.id), 15)}${lpad(ly(x.dist), 5)} ${way} ${pad(STARS[sys.star].code, 5)} ${sees}`);
     });
     this.pre(lines);
-    this.dim(`map: @ us, : dense gas, % cloud, edge at ${ly(radius)} ly`);
     this.dim('g: gas on the way (_ void, . thin, : moderate, % dense, # cloud)');
     this.dim('sees: O giants, ~ belts and comets, ! oddity, * been there');
 
@@ -914,10 +990,18 @@ export class Game {
       if (r >= 0 && r < rows && c >= 0 && c < cols) grid[r][c] = String(i + 1);
     });
     grid[6][20] = '@';
-    const lines = grid.map((row) => row.join('').trimEnd());
+    this.out.push({
+      k: 'map',
+      s: [
+        ...grid.map((row) => row.join('').trimEnd()),
+        `gas: blank void, . thin, : moderate, % dense, # cloud · @ us · edge at ${ly(radius)} ly`,
+      ].join('\n'),
+      map: this.picture(radius, bright.map((x, i) => ({ seen: x, n: i + 1 }))),
+    });
+    const lines: string[] = [];
     if (bright.length) {
       s.chart = bright.map((x) => x.ref.id);
-      lines.push('', ' #  system             ly star  way');
+      lines.push(' #  system             ly star  way');
       bright.forEach((x, i) => {
         const sys = this.system(x.ref.id);
         const leg = planLeg(this.galaxy, here, x.ref, this.drive, 1);
@@ -925,8 +1009,7 @@ export class Game {
         lines.push(`${lpad(String(i + 1), 2)}${s.mem[x.ref.id] ? '*' : ' '} ${pad(this.nameOf(x.ref.id), 15)}${lpad(ly(x.dist), 5)} ${pad(STARS[sys.star].code, 5)} ${way}`);
       });
     }
-    this.pre(lines);
-    this.dim(`gas: blank void, . thin, : moderate, % dense, # cloud · @ us · edge at ${ly(radius)} ly`);
+    if (lines.length) this.pre(lines);
     this.dim(
       bright.length
         ? 'Thin gas is fast going; a cloud is a wall. These are the bright stars in range, and "plot" works on their numbers.'
