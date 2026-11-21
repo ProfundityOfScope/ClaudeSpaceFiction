@@ -11,7 +11,7 @@ A text prototype of the game Lightspeed: a forever cruise on a relativistic worl
 - `main` = slice 1 plus the video renderer. `v0.1.0` tags slice 1 (commit 8461d87).
 - Public page: GitHub Pages serves `main` / `docs/`. Dev preview: a private Artifact named "Lightspeed", republished from `dist/artifact.html` (find it in the artifact list; pass its URL to update it in place).
 - Current branch of work: `claude/onboarding-and-tuning`. Next after it: slice 2.
-- Play-test 1 is in (below). A proposal for this branch has been put to the owner; do not build until they approve it.
+- Play-test 1 is in (below). The owner approved a trimmed plan for this branch: see "Now".
 
 ## What the owner wants (their steers, in order of weight)
 
@@ -35,9 +35,14 @@ Reactions to slice 1 so far: finding the worked stone at Ember 61 was the high p
 ## The slice plan
 
 1. **Sweep, scan, jump.** Done. Refits were pulled forward into it.
-2. **Somebody's home.** Civilisations, ruins tied to them, contact, trade, ship mood.
+2. **Somebody's home.** Civilisations, ruins tied to them, contact, trade.
 3. **Other wakes.** Other ships, broadcasts, festivals, Lodestars, the navigator's marks.
 4. **Deep time.** Novae and supernova alerts, differences on revisits, the Mind's reckonings.
+
+Two further items the owner named after play-test 1. They sit beside the slices; their order is not decided, so ask before starting either.
+
+- **ISRU improvements.** Gathering resources in place, made richer: different materials in different kinds of place, at different difficulty, and refits that need them. The owner likes the idea and wants it more evolved than a quick patch: "it's complex".
+- **Ship politics.** The management side: the three blocs, the mood aboard, and the incentive to move on. The owner is happy for this to be more severe and more important than a mild nudge.
 
 ### Play-test 1 (the owner, 30 minutes, 5 systems, 4 jumps)
 
@@ -54,17 +59,29 @@ Reactions to slice 1 so far: finding the worked stone at Ember 61 was the high p
 - **Ideas offered for later:** very rare events, such as temporary bonuses to ship systems, or items that can be sold.
 - **One more jump?** "Sort of, hard to say yet."
 
-### Now: onboarding and tuning (proposed, awaiting approval)
+### Now: onboarding and tuning (approved)
 
 1. **Onboarding.** The Mind walks the first visit in its own voice (sweep, assign, stay, chart, plot, burn), driven by state, then never again. Old saves skip it. Aliases `map` and `system` for `look`; a steadier set of buttons; "did you mean" for unknown commands.
-2. **Burns.** Fuel use goes as thrust squared, so the economy burn costs about an eighth of the fuel for about twice the time. Hard burns are unchanged.
-3. **Refit ingredients by place.** Three special materials gathered as by-products of work already in the game: metals from rich belts, isotopes from ice giants, exotics from the winds of unusual stars (giants, remnants, supergiants). Early refits need the local two; later levels need exotics, which means leaving the cluster.
-4. **The mood aboard** (pulled forward from slice 2). One number, voiced by the three blocs, that nudges work speed by about 15% either way. New sky and finds lift it; a system with nothing left to chart and long years in transit lower it. This is what gives time a price, and so makes both "stay or go" and "hard or economy" real choices.
-5. **Seeing the gas.** Four levels of shading on the chart map, and a zoomed-out view of gas and bright stars.
-6. **The Mind.** Quieter when it has nothing to flag on a plot. Escalating lines when it keeps being overruled, and when it keeps being right or wrong.
-7. Small: faster wind skimming, a note when a tank refit lowers the fuel percentage, a derated drive when the hull is badly damaged.
+2. **Burns.** Fuel use goes as thrust squared, so the economy burn costs about an eighth of the fuel for about twice the time. Hard burns are unchanged. Time under way wears the hull, so the slow burn is not free: without that, economy would always win until ship politics gives time a real price.
+3. **Seeing the gas.** Three levels of shading on the chart map, and a wide view of gas and bright stars.
+4. **The Mind.** Quiet when it has nothing to flag on a plot. Escalating lines when it keeps being overruled, and when it keeps being right or wrong.
+5. Small: faster wind skimming, a note when a tank refit lowers the fuel percentage, a throttled drive when the hull is badly damaged.
 
-Lighter alternative if the mood is deferred: easy ore that runs out in each system, plus a short work bonus on arriving somewhere new.
+Deliberately not on this branch: any incentive to move on. That belongs to ship politics (mood) and ISRU (ore that runs out).
+
+### ISRU improvements: thinking so far
+
+- A first sketch, which the owner found too thin: three special materials as by-products of existing work. Metals from rich belts, isotopes from ice giants, exotics from the winds of unusual stars (giants, remnants, supergiants). Early refits need the local two; later levels need exotics, so they need a journey to a bright star on the chart.
+- What "more evolved" probably means: more kinds of place and material, extraction that differs by body (not one rate table), difficulty and yield that vary, possibly processing steps, and ore that runs out so a system is worked and then left.
+- Keep: no pile of new verbs if by-products and body properties can carry it; the chart's brightness tiers as the natural ladder of difficulty; refits gated by where the ship has been, not by waiting.
+- Ideas the owner offered that fit here or in trade: very rare finds that give temporary bonuses to ship systems, and items that can be sold.
+
+### Ship politics: thinking so far
+
+- A first sketch: one mood number voiced by the three blocs, nudging work speed about 15% either way. The owner wants it weightier than that.
+- Levers: new sky and finds lift the Surveyors; a sound ship lifts the Wrights; staying put suits the Commons, long transits wear on them. A charted-out system should become a reason to leave. Time aboard should have a price, which is also what makes hard versus economy a full choice.
+- With more weight it could gate things: a bloc refusing a crew, a refit, or a burn; the Mind mediating; the navigator spending standing to overrule.
+- The transit wear added on this branch is a stopgap for "time has a price". Revisit it when this lands.
 
 ### Slice 2 design, as far as it is thought through
 
@@ -72,7 +89,6 @@ Lighter alternative if the mood is deferred: easy ore that runs out in each syst
 - **Ruins fall out**: any system a dead civilisation used to reach. Attribute the existing relic finds to a civilisation with a name and an age.
 - **Species and names** from a grammar; invented-syllable names belong to civilisations, plain nouns to stars.
 - **Contact** is small: one exchange per visit, shaped by temperament and phase. **Trade** is wants and offers by tag, no prices. The Archive and carried relics are the currency; old records of a dead neighbour should be worth something.
-- **Mood**: one number, voiced by Surveyors (want new sky), Wrights (want the ship sound), Commons (want to stay put). It should pull against the route, not be a chore.
 - New random streams get **new keys in `K`** (`rng.ts`). Never renumber.
 
 ### Later slices, ideas held
