@@ -105,11 +105,16 @@ function drawMap(map: MapData): HTMLCanvasElement | null {
     const text = String(star.n);
     const width = text.length * 4 - 1;
     const gap = star.size + 1;
+    // Tried in order: right, left, above, below, then the four corners.
     const spots = [
       [star.x + gap, star.y - 2],
       [star.x - gap - width + 1, star.y - 2],
       [star.x - Math.floor(width / 2), star.y - gap - 4],
       [star.x - Math.floor(width / 2), star.y + gap],
+      [star.x + gap, star.y - gap - 4],
+      [star.x + gap, star.y + gap],
+      [star.x - gap - width + 1, star.y - gap - 4],
+      [star.x - gap - width + 1, star.y + gap],
     ].map(([left, top]) => [Math.min(map.size - width - 1, Math.max(1, left)), Math.min(map.size - 6, Math.max(1, top))]);
     const [left, top] = spots.find(([l, t]) => !clash([l, t, l + width - 1, t + 4])) ?? spots[0];
     taken.push([left - 1, top - 1, left + width, top + 5]);
