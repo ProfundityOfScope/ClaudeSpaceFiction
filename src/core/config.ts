@@ -78,7 +78,7 @@ export const TUNE = {
    * hull raises it; denser gas lowers it.
    */
   REACH: 0.4,
-  /** Fraction of full thrust used by an economy burn. */
+  /** Fraction of full thrust used by an economy burn. Fuel goes as thrust squared, so it is far cheaper. */
   ECO: 0.25,
   /** Shield lost per (atoms/cm^3 * ly * (gamma - 1)), divided by hull grade squared. */
   ABLATION: 2.6,
@@ -86,8 +86,13 @@ export const TUNE = {
   BREACH: 0.5,
   /** Hull wear from any jump, percent. */
   JUMP_WEAR: 0.3,
-  /** Hull wear per year aboard, percent. */
+  /** Hull wear per year at rest, percent. */
   AGE_WEAR: 0.4,
+  /** Hull wear per year under way, percent. This is what a slow, frugal burn costs. */
+  TRANSIT_WEAR: 1.5,
+  /** Below this hull condition the Wrights throttle the drive to this fraction of its thrust. */
+  HULL_THROTTLE: 40,
+  THROTTLE: 0.7,
   /** The drive will not light below this hull condition after the jump. */
   HULL_FLOOR: 5,
   /** Last-resort drift speed, as a fraction of c. */
@@ -96,7 +101,7 @@ export const TUNE = {
   /** Fuel gathered per day by richness 1..3, percent of a full tank. */
   SCOOP: [0, 0.5, 1.0, 1.6],
   /** Fuel skimmed from a star's wind, percent of tank per day. */
-  WIND: 0.12,
+  WIND: 0.25,
   /** Shield rebuilt per day by ice richness 1..3, percent. */
   ICE: [0, 0.35, 0.7, 1.1],
   /** Materials mined per day by ore richness 1..3. */

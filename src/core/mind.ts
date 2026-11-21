@@ -26,6 +26,10 @@ export interface MindState {
   overruled: number;
   /** A dissent waiting to be checked on arrival. */
   dissent?: { where: string; reason: 'shield' | 'fuel'; hull: number };
+  /** How its recent dissents turned out: positive when it keeps being right, negative when wrong. */
+  streak?: number;
+  /** How many times it has flatly refused a burn. */
+  refused?: number;
 }
 
 export const FANCIES: StarKind[] = ['WD', 'PSR', 'RG', 'BD', 'A', 'RSG'];
@@ -122,6 +126,36 @@ export const LINES: Record<string, string[]> = {
     "For the record, I would not do this. I've logged it, and I'll check afterwards whether I was right.",
     "I'm entering a dissent. It changes nothing. It means I will look back at this later.",
     "My objection is in the log. You have the conn; that's what the charter says and I helped write it.",
+  ],
+  dissent_again: [
+    'Dissent number {n}. I have started a second page.',
+    'Again, for the record. The record is getting long.',
+    "The objection is the same as the last {last} times. I'll spare you the wording.",
+    'Logged, with the others. I file them by date, and the dates are close together.',
+    "Number {n}. I'd say I was repeating myself, but you'd have to have listened the first time.",
+  ],
+  dissent_weary: [
+    'I have nothing new to say about this. Logged.',
+    "You know what I think. It's in the log, under the others.",
+    'Logged.',
+  ],
+  refuse: ['No. The hull would not survive it, and I am the hull. Mend first, or find more shield.'],
+  refuse_again: [
+    'Still no. Ask me again when the Wrights have had a month.',
+    'No, and asking twice does not change the arithmetic.',
+    "I will not. It is the one thing in the charter I don't have to explain.",
+    'No. I can do this for longer than you can.',
+  ],
+  reckon_right_streak: [
+    "That is {n} times running the hull has agreed with me. I'm not keeping score. The Wrights are.",
+    "Right again, {n} in a row. I'd rather have been wrong; it is cheaper.",
+    '{n} objections, {n} repairs. I mention the pattern and nothing else.',
+    'I was right at {where} too. That makes {n}. I take no pleasure in arithmetic this simple.',
+  ],
+  reckon_wrong_streak: [
+    "Wrong again: {n} in a row. Either you are good at this or you are lucky, and I can't tell which from here.",
+    "{n} objections, {n} safe arrivals. I've widened my margins. You earned that.",
+    'I keep expecting the worst and you keep not delivering it. Noted, with some relief.',
   ],
   reckon_right: [
     'I dissented at {where}. Hull is down {hull} points. I will leave it there.',
@@ -275,3 +309,22 @@ export function speak(mind: MindState, seed: number, pool: string, vars: Record<
   mind.used[pool] = [...used, choice];
   return fill(lines[choice], vars);
 }
+
+/**
+ * The first visit of a new voyage. The Mind says each of these once, in
+ * order, as the navigator reaches that step; `hint` names the commands.
+ */
+export const GUIDE = {
+  start: 'First, a sweep. It costs an hour and shows what orbits this star.',
+  swept: 'That is everything big enough to see from here. We have two crews, both idle. {where} has fuel for the taking, and a survey would tell us what the rest is worth.',
+  sweptHint: 'Try "scoop {n}" and "survey". "ops" lists all the work here, and "look" (or "map") shows this table again.',
+  sweptBare: 'That is everything big enough to see from here. We have two crews, both idle. A survey would tell us what this place is worth.',
+  sweptBareHint: 'Try "survey". "ops" lists all the work here, and "look" (or "map") shows this table again.',
+  working: 'Good. Nothing happens until you let the days run.',
+  workingHint: '"stay" runs time until a crew finishes or something turns up. "stay 30" runs thirty days.',
+  stayed: 'That is the rhythm of it: put the crews to work, let the days run, see what turns up. Stay as long as it pays.',
+  stayedHint: 'When you want to move on, "chart" shows the stars in reach.',
+  charted: 'Pick one and I will work out what it costs. A few months for us is a few years for everyone outside.',
+  chartedHint: '"plot 1" costs the trip to number 1. "scope 1" is what the telescope sees there. "gas" shows the wider sky.',
+  done: 'That is all of it. I will stop explaining now. Ask, if you want my view of anything.',
+} as const;

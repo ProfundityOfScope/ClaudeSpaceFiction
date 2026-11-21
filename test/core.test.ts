@@ -59,6 +59,7 @@ test('travel: gas sets the speed, and the two clocks behave', () => {
   assert.ok(hard.galaxy >= hard.dist, 'nothing outruns light');
   assert.ok(hard.ship < hard.galaxy, 'less time passes aboard');
   assert.ok(eco.ship > hard.ship && eco.fuel < hard.fuel && eco.shield < hard.shield, 'economy is slower and cheaper');
+  assert.ok(eco.fuel < hard.fuel / 4, 'and much cheaper in fuel, because burn rate goes as thrust squared');
   const better = planLeg(galaxy, start, target.ref, { thrust: 20, hull: 4 }, 1);
   assert.ok(better.shield < hard.shield / 4, 'a better hull loses far less ice');
 });
@@ -89,7 +90,7 @@ test('surveying finds everything, and work fills what it should', () => {
 
 test('fixed-width blocks fit a phone', () => {
   const g = Game.fresh();
-  const commands = ['sweep', 'ops', 'survey', 'stay 60', 'look', 'chart', 'plot 1', 'plot 9', 'ship', 'refits', 'log', 'finds', 'help', 'burn', 'sweep', 'chart'];
+  const commands = ['sweep', 'ops', 'survey', 'stay 60', 'look', 'chart', 'plot 1', 'plot 9', 'gas', 'plot 1', 'ship', 'refits', 'log', 'finds', 'help', 'burn', 'sweep', 'chart'];
   for (const c of commands) {
     for (const out of g.exec(c)) {
       if (out.k !== 'pre') continue;
@@ -106,4 +107,56 @@ test('the written material is well formed', () => {
   for (const track of Object.values(REFITS)) {
     for (let i = 1; i < track.levels.length; i++) assert.ok(track.levels[i] > track.levels[i - 1]);
   }
+});
+
+const said = (out: { s: string }[]) => out.map((o) => o.s).join('\n');
+
+test('a new voyage is walked through its first visit, once', () => {
+  const g = Game.fresh();
+  assert.match(said(g.intro()), /First, a sweep/);
+  assert.match(said(g.exec('sweep')), /Try "scoop \d+" and "survey"/);
+  assert.match(said(g.exec('survey')), /let the days run/);
+  assert.match(said(g.exec('stay 5')), /That is the rhythm/);
+  assert.match(said(g.exec('chart')), /Pick one/);
+  g.exec('plot 1');
+  assert.match(said(g.exec('burn')), /I will stop explaining/);
+  assert.equal(g.state.guide, undefined);
+  // The next system gets no walkthrough.
+  assert.doesNotMatch(said(g.exec('sweep')), /Try "scoop/);
+});
+
+test('a save from before the walkthrough loads and is not walked through', () => {
+  const g = Game.fresh();
+  const old = JSON.parse(g.save());
+  delete old.guide;
+  delete old.visit.plots;
+  const loaded = Game.load(JSON.stringify(old));
+  assert.doesNotMatch(said(loaded.exec('sweep')), /Try "scoop/);
+  assert.ok(loaded.exec('chart').length > 0);
+  assert.ok(loaded.exec('plot 1').length > 0);
+});
+
+test('other names and near misses for commands', () => {
+  const g = Game.fresh();
+  g.exec('sweep');
+  assert.deepEqual(g.exec('map').slice(1), g.exec('look').slice(1));
+  assert.match(said(g.exec('sweap')), /Did you mean "sweep"\?/);
+  assert.doesNotMatch(said(g.exec('xyzzy')), /Did you mean/);
+});
+
+test('the Mind words a repeated objection differently, and remembers how they turned out', () => {
+  const g = Game.fresh();
+  g.state.guide = undefined;
+  g.state.ship.shield = 0;
+  const heard = new Set<string>();
+  for (let i = 0; i < 6; i++) {
+    g.state.ship.hull = 90;
+    g.state.ship.fuel = 6;
+    g.exec('chart');
+    g.exec('gas');
+    for (const o of [...g.exec('plot 1'), ...g.exec('burn')]) if (o.k === 'mind') heard.add(o.s);
+  }
+  assert.ok(g.state.mind.overruled >= 3, 'six burns with no shield draw several dissents');
+  assert.ok(Math.abs(g.state.mind.streak ?? 0) >= 2, 'and it keeps a running tally of the outcomes');
+  assert.ok([...heard].some((line) => /Dissent number|for the record|same as the last|with the others|Number \d/.test(line)));
 });
