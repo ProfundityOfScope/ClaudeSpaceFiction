@@ -20,13 +20,16 @@ node tools/play.ts sweep ops  # run some commands and exit
 
 ## What is in this slice
 
-- **The loop.** `sweep` a system, assign crews (`scoop` fuel from giants, cut `ice` for the forward shield, `mine` materials, `survey`, deep `scan` oddities, `repair`), let days pass with `stay`, then `chart`, `plot` and `burn`. `look` shows the system and what each crew is doing; `ship` shows the ship and its refits.
+- **The loop.** `sweep` a system, assign crews (`scoop` fuel from giants, cut `ice` for the forward shield, `mine` stock for the hold, `survey`, deep `scan` oddities, `repair`), let days pass with `stay`, then `chart`, `plot` and `burn`. `look` shows the system and what each crew is doing; `ship` shows the ship and its refits.
 - **Two clocks.** Every trip costs time aboard and more time outside.
 - **Gas sets the speed.** In gas of density n the ship cruises at gamma = sqrt(1 + P / n), where P grows with engine thrust and hull grade. Thin gas is fast; clouds are walls for a young ship. `chart far` shows where it lies.
 - **Two ways to burn.** `burn` goes at full thrust. `burn eco` goes at a quarter: fuel use goes as thrust squared, so it is far cheaper, but it takes about twice as long and time under way wears the hull.
 - **A guided first visit.** On a new voyage the Mind explains each step once, then stops.
 - **Charts at three zooms.** `chart close` is the nearest stars. `chart` is what stands out in a view four times wider: signals, things worth a deep scan, bright stars. `chart far` is the bright stars to steer by, four times wider again. Each draws a small map in characters and lists what it numbers, says which of them the tanks can reach, and says whose space you are in or near. `plot` takes a number from whichever chart was shown last, or a star's name, and says what the telescopes see there as well as what the trip costs.
-- **Refits.** Knowledge in the Archive unlocks them; materials and crew time pay for them.
+- **Five materials, each from its own kind of place.** Volatiles from beyond the snow line, metals from rock, carbon from carbon-rich bodies and the winds of old giant stars, isotopes from giant planets, heavy elements from the debris of dead stars. They share one hold. The survey says what a body holds; `mine 3 carbon 45` takes a named material, and only as much as asked.
+- **Seams thin out.** A whole system does not run dry, but the easy part of each seam does, slowly, and what you took is remembered if you come back. People who live in a system have already thinned its seams.
+- **Hot work.** A few bodies, very close to their star or round a pulsar or a black hole, cost hull or shield for every day a crew works them. The Mind says so, and pulls the crew off before it costs too much.
+- **Refits.** Knowledge in the Archive unlocks them; particular materials and crew time pay for them. The early ones need what is common, the last ones need heavy elements, so the far chart becomes a ladder.
 - **The Mind.** A written voice with its own tastes, a dissent it logs and later checks, and a habit of noticing how you leave places.
 - **Other people.** About one system in a hundred is somebody's home, more in the old cluster where the voyage starts. None of them are human. Each culture is born, rises, declines and ends; a few spread to hold the stars around them for a while. Their radio shows as `^` on the charts, as old as the light that carries it. Come back after a long haul and they may have changed, or be gone.
 - **Ruins and relics.** A culture that has ended leaves ruins for a few thousand years, and then nothing. The chart flags unread ruins close by, a sweep picks them out, and a deep scan says whose they were and now and then brings something back for the hold.
@@ -39,10 +42,10 @@ TypeScript, no framework, no runtime dependencies. The game core never touches t
 
 | File | What it holds |
 |---|---|
-| `src/core/config.ts` | Every tunable number: galaxy size, drive physics, work rates, refit costs |
+| `src/core/config.ts` | Every tunable number: galaxy size, drive physics, materials and work rates, refit recipes |
 | `src/core/rng.ts` | Integer hashing; one substream per purpose |
 | `src/core/galaxy.ts` | Where systems are and how thick the gas is, generated per cell on demand |
-| `src/core/system.ts` | Stars, bodies and what a survey finds, as a pure function of seed and id |
+| `src/core/system.ts` | Stars, bodies, what can be mined from them and what a survey finds, as a pure function of seed and id |
 | `src/core/features.ts` | The catalogue of natural oddities, with their text |
 | `src/core/civs.ts` | Who lives where and when: cultures, the space they hold, their ruins |
 | `src/core/cultures.ts` | The tables a culture is invented from: names, bodies, habits, what they leave |
@@ -64,7 +67,7 @@ npm test         # determinism, calibration, physics, cultures, saves, layout wi
 npm run build    # writes docs/index.html
 npm run bot      # a bot flies 150 jumps and reports pacing, repeated lines and who it met
 node tools/bot.ts --jumps 500 --seed 7 --transcript > flight.txt
-npm run census   # how many cultures, outposts and ruins there are, and how far apart
+npm run census   # how many cultures, outposts and ruins there are, and where each material is found
 ```
 
 `docs/index.html` is generated; edit `src/` and rebuild.

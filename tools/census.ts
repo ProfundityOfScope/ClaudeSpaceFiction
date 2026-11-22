@@ -111,6 +111,21 @@ for (const ref of sample) {
 }
 console.log(`\nfrom ${sample.length} field systems: median distance to the nearest living culture ${median(nearest).toFixed(1)} ly, to the nearest ruin ${median(nearestRuin).toFixed(1)} ly`);
 
+// ---- what can be mined, and where ----
+{
+  const systems = field.map((ref) => cultures.system(ref));
+  const share = (test: (sys: (typeof systems)[number]) => boolean) => pct(systems.filter(test).length, systems.length);
+  const has = (material: string, grade = 1) => (sys: (typeof systems)[number]) => sys.bodies.some((b) => b.seams.some((x) => x.material === material && x.grade >= grade));
+  console.log(`\nmaterials, in the same ${systems.length} field systems (share with any seam / with a rich one, grade 2 or more)`);
+  for (const m of ['volatiles', 'metals', 'carbon', 'isotopes', 'heavy']) console.log(`  ${m.padEnd(10)} ${share(has(m)).padStart(7)} ${share(has(m, 2)).padStart(7)}`);
+  console.log(`  hot work somewhere in the system: ${share((sys) => sys.bodies.some((b) => b.hot))} · the only source of something there: ${share((sys) => ['metals', 'isotopes', 'heavy', 'carbon', 'volatiles'].some((m) => sys.bodies.some((b) => b.hot && b.seams.some((x) => x.material === m)) && !sys.bodies.some((b) => !b.hot && b.seams.some((x) => x.material === m))))}`);
+  const from = galaxy.within(start.x, start.y, 120).filter((s) => s.dist > 0);
+  for (const [m, g] of [['carbon', 1], ['carbon', 2], ['isotopes', 2], ['heavy', 1], ['heavy', 2]] as const) {
+    const hit = from.find((s) => has(m, g)(cultures.system(s.ref)));
+    console.log(`  nearest ${m} of grade ${g}+ from the start: ${hit ? `${cultures.system(hit.ref).name}, ${hit.dist.toFixed(1)} ly (${cultures.system(hit.ref).star})` : 'none within 120 ly'}`);
+  }
+}
+
 // ---- cultures that spread ----
 const cc = DEMO.coarse;
 const reaches: Culture[] = [];

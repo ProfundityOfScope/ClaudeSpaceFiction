@@ -10,7 +10,7 @@ A text prototype of the game Lightspeed: a forever cruise on a relativistic worl
 
 - `main` = slice 1, onboarding and tuning, the charts, slice 2 step 1 (other people, ruins, relics) and the media folder. `v0.1.0` tags slice 1 (commit 8461d87). Suggested to the owner: tag today's `main` `v0.1.1` if they want a marker, and keep `v0.2.0` for when contact and trade are in.
 - Public page: GitHub Pages serves `main` / `docs/`. Dev preview: a private Artifact named "Lightspeed", republished from `dist/artifact.html` (find it in the artifact list; pass its URL to update it in place).
-- Current branch of work: `claude/isru`, materials. The owner pulled it ahead of contact so that cultures can want different things. Its own pull request, then slice 2 step 2 (contact), then step 3 (trade).
+- Current branch of work: `claude/isru`, materials: built and in a pull request. The owner pulled it ahead of contact so that cultures can want different things. Next: slice 2 step 2 (contact), then step 3 (trade).
 - Not yet heard: how the onboarding, the economy burn, the three charts and the reach line played. Ask.
 
 ## What the owner wants (their steers, in order of weight)
@@ -116,6 +116,30 @@ Rules of the design:
 - Offered and liked, not yet built: very rare survey finds that boost a rate for a while (the owner's own idea from play-test 1).
 - Left for later: processing steps and equipment refits (the biggest of the three sizes); carrying volatiles to patch the shield in flight.
 
+### Materials, as built
+
+- **Where it lives.** `MATERIALS`, `MATERIAL` (short names), `ISRU` (every rate) and the refit `RECIPES` are in `config.ts`. Seams are part of a system: `Body.seams` and `Body.hot`, made in `seamsFor` and `hotFor` in `system.ts` on their own stream (`K.SEAM`), so the bodies themselves did not change. Bodies no longer have `ore`.
+- **A seam's rate** is `GRADE[grade] * WELL[kind of body] * (FLOOR + (1 - FLOOR) * exp(-taken / size))`. `taken` is what we have mined (`mem.taken["body:material"]`, saved) plus what the people of the system have had (`workedByOthers`: by phase, halved for an outpost, between a fifth and all of that by a hash per seam). Ruins count as their makers did at the end; once the ruins are gone the seams are fresh again, which is not physics but matches everything else about cultures leaving no permanent mark.
+- **Commands.** `mine N` takes the richest seam; `mine N car` a named one (name, any prefix, or the short form); `mine N car 45` or `mine N 45` stops after that many units. `dump X [n]`. A body must be charted first; the star's own seam (red giant wind, a black hole's disc, pulsar debris) needs only the sweep. `ops` lists every open seam with its rate, and `thin` or `hot`.
+- **The table** shows what fits in 13 columns, rarest first; `ore?` until the body is charted.
+- **What crews are pointed at** (`suggestions`, which also drives the buttons and the bot): one refit at a time (`refitAim`: of those the Archive allows, the one this system can best supply and the hold is nearest to affording), plus metal to mend the hull. Each suggestion carries an amount. Without this the hold filled with stock for every refit at once and none could be paid for; the bot found that.
+- **Repairs** cost 1 metal per percent (was 1.5 of the old single material). With no metal at all the Wrights patch from scrap, slowly, up to 30%: that is what stops a wrecked ship being stranded where there is no metal.
+- **Hot work**: `HEAT` 0.06% of hull or `RADIATION` 0.15% of shield per crew-day. The Mind warns once a visit and recalls the crew at 45% hull.
+- **Saves are version 3.**
+
+Numbers on the default seed:
+
+- Share of field systems with each material (any seam / grade 2 or better): volatiles 79% / 61%, metals 94% / 57%, carbon 42% / 12%, isotopes 37% / 16%, heavy 1.2% / 0.03%. Hot work somewhere in 11% of systems, and the only source of something in 2.6%.
+- From the start: carbon and isotopes are in the start system and next door; the nearest heavy elements are 15 ly off at a white dwarf; nothing of grade 2 within 120 ly. The top refit levels really do need a long trip.
+- Bot, 150 jumps on three seeds: no dead ends; hull healthy; tanks, optics, crews and hold reach their top level, engine 4 to 8 and hull 6 to 7, held back by heavy elements and carbon. First refit at the second system. A person plays far fewer jumps, so this is a ceiling, not a pace.
+
+Rough edges, left on purpose:
+
+- A culture's home world cannot be mined at all (as before), and its other seams are only thinned. Contact will decide what working in somebody's system costs.
+- Survey finds do not know about seams (a "nickel-iron body" find does not make a belt richer).
+- Thinning is hard to feel at the bot's pace: seams are sized so that a hold or two barely dents them. The dial is `ISRU.SIZE`.
+- The start system happens to have four of the five materials. Nothing guarantees that on other seeds.
+
 ### Contact (slice 2 step 2): defaults the owner has agreed
 
 Build after materials. Terms on arrival by temperament (welcoming: free; proud: a toll; wary: a limited stay; reclusive: look but take nothing; hostile: leave). Comply or ignore; ignoring escalates. Agreed defaults: a toll is paid in materials the culture lacks; about ten days of warning, then a few percent of hull a day, so the Mind takes the conn after roughly a month; claimed space with nobody in it has no terms. The Mind's exit is at 10% hull, written as one function with a cutoff so a smarter rule can replace it.
@@ -201,7 +225,7 @@ Notes for step 2: terms attach where `meet` and `homes()` are. The emergency exi
 
 - Integer hashing only. One substream per purpose. Append to `K`, never renumber.
 - Nothing derived is stored. The save holds what the player did; the galaxy is rebuilt from the seed.
-- A save is `State` with `v: SAVE_VERSION` (now 2). Adding a field needs a default on load. Changing what a field means needs a version bump, which throws old voyages away; the owner has said that is fine during testing.
+- A save is `State` with `v: SAVE_VERSION` (now 3). Adding a field needs a default on load. Changing what a field means needs a version bump, which throws old voyages away; the owner has said that is fine during testing.
 - History is never stepped. Who is home is a function of (seed, system, year); keep it that way, so a save never has to hold a simulation.
 - Adding an entry to `FEATURES` changes what the dice pick, so surveyed systems can change. Acceptable now; say so when it happens. The same goes for the tables in `cultures.ts`: a new entry renames or redescribes cultures already met.
 - Fixed-width output stays within 42 columns (there is a test).

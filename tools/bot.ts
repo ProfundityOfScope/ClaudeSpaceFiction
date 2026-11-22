@@ -147,7 +147,7 @@ const report = [
   `archive ${s.ship.archive} · finds ${s.stats.finds} · relics ${s.ship.relics.length}`,
   `arrivals: somebody's home ${met.home} · an outpost ${met.outpost} · claimed space only ${met.claimed} · ruins ${met.ruins} · nobody and nothing ${met.quiet}`,
   `peoples known ${Object.keys(s.met).length} (${Object.values(s.met).filter((m) => m.how === 'met').length} met living) · ruins read ${s.seen.ruin ?? 0} · first meetings at ${firstMeeting.join('; ') || 'never'}`,
-  `ship: fuel ${Math.round(game.status().fuel)}% shield ${Math.round(s.ship.shield)}% hull ${Math.round(s.ship.hull)}% hold ${Math.round(s.ship.materials)}`,
+  `ship: fuel ${Math.round(game.status().fuel)}% shield ${Math.round(s.ship.shield)}% hull ${Math.round(s.ship.hull)}% hold ${Object.entries(s.ship.hold).map(([m, n]) => `${m} ${Math.round(n)}`).join(', ')}`,
   `levels: ${Object.entries(s.ship.levels).map(([k, v]) => `${k} ${v}`).join(', ')}`,
   `refits: ${refitLog.join('; ') || 'none'}`,
   `mind: ${mindLines} lines (${(mindLines / Math.max(1, s.stats.jumps)).toFixed(1)} per jump), dissents ${s.mind.overruled}, early ${s.mind.early}, thorough ${s.mind.thorough}`,

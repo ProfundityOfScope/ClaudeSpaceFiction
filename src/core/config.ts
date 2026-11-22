@@ -104,11 +104,12 @@ export const TUNE = {
   WIND: 0.25,
   /** Shield rebuilt per day by ice richness 1..3, percent. */
   ICE: [0, 0.35, 0.7, 1.1],
-  /** Materials mined per day by ore richness 1..3. */
-  ORE: [0, 0.25, 0.55, 1.0],
-  /** Hull repaired per day, percent, and materials used per percent. */
+  /** Hull repaired per day, percent, and metals used per percent. */
   REPAIR_RATE: 0.35,
-  REPAIR_COST: 1.5,
+  REPAIR_COST: 1.0,
+  /** With no metal at all the Wrights can still patch from scrap: at this share of the usual rate, and only up to this hull condition. It is what stops a wrecked ship being stranded. */
+  SCRAP_RATE: 0.2,
+  SCRAP_LIMIT: 30,
 
   /** Survey pacing: finds come at -tau * ln(1 - (k - 0.5) / K), tau = A + B * K days. */
   SURVEY_A: 14,
@@ -122,6 +123,48 @@ export const TUNE = {
   HINT_SHARE: 0.25,
   /** Bonus multiplier the first time a kind of thing is logged. */
   FIRST_BONUS: 1.5,
+} as const;
+
+/**
+ * What can be taken out of a system and put in the hold.
+ *
+ * Each comes from a kind of place: volatiles from beyond the snow line, metals
+ * from rock, carbon from carbon-rich bodies and the winds of old giant stars,
+ * isotopes (deuterium, helium-3) from giant planets, and heavy elements from
+ * the debris of dead stars.
+ */
+export const MATERIALS = ['volatiles', 'metals', 'carbon', 'isotopes', 'heavy'] as const;
+export type Material = (typeof MATERIALS)[number];
+export const MATERIAL: Record<Material, { short: string; name: string }> = {
+  volatiles: { short: 'vol', name: 'volatiles' },
+  metals: { short: 'met', name: 'metals' },
+  carbon: { short: 'car', name: 'carbon' },
+  isotopes: { short: 'iso', name: 'isotopes' },
+  heavy: { short: 'hvy', name: 'heavy elements' },
+};
+
+/** Gathering materials in place. */
+export const ISRU = {
+  /** Units a day from a fresh seam of grade 1..3, before the kind of body is counted. */
+  GRADE: [0, 0.5, 0.9, 1.4],
+  /** How easily material comes off each kind of body: free fall is quick, a deep gravity well is slow. */
+  WELL: { star: 0.3, belt: 1, comets: 0.9, dwarf: 0.8, icegiant: 0.75, scorched: 0.7, ice: 0.6, gas: 0.5, rocky: 0.45, desert: 0.45, ocean: 0.35 },
+  /**
+   * Seams thin out. A body cannot run dry at this scale, but its easy seam
+   * can: the rate falls as exp(-taken / size) toward FLOOR of what it began
+   * at. SIZE is the range a seam's size is drawn from, by material.
+   */
+  FLOOR: 0.15,
+  SIZE: { volatiles: [1500, 3500], metals: [600, 1400], carbon: [350, 900], isotopes: [3000, 6000], heavy: [150, 450] },
+  /** A seam is called thin once it gives less than this share of what it did fresh. */
+  THIN: 0.6,
+  /** Hot work, percent a day for each crew at it: heat wears the hull, radiation the shield. */
+  HEAT: 0.06,
+  RADIATION: 0.15,
+  /** The Mind pulls crews off hot work when the hull falls to this. */
+  HOT_RECALL: 45,
+  /** How much of each seam a culture in the system has already had, in seam sizes, by its phase. An outpost has had half as much. */
+  WORKED: { founding: 0.1, rising: 0.5, height: 1.0, decline: 1.3, ruins: 1.3, 'old ruins': 1.3 },
 } as const;
 
 /**
@@ -190,6 +233,20 @@ export const CIV = {
  * Hull: a grade. A better hull is faster through gas and loses far less ice.
  * Tanks: years of burning at full thrust that a full tank holds.
  */
+/**
+ * What each refit is built from, as shares, changing as the levels climb:
+ * the early ones need what is common, the later ones carbon and isotopes, and
+ * the last ones heavy elements, which only the debris of dead stars has.
+ */
+const RECIPES: Record<string, { from: number; mix: Partial<Record<Material, number>> }[]> = {
+  engine: [{ from: 0, mix: { isotopes: 0.6, metals: 0.4 } }, { from: 3, mix: { isotopes: 0.6, metals: 0.3, heavy: 0.1 } }, { from: 6, mix: { isotopes: 0.6, metals: 0.2, heavy: 0.2 } }],
+  hull: [{ from: 0, mix: { metals: 1 } }, { from: 2, mix: { metals: 0.6, carbon: 0.4 } }, { from: 6, mix: { metals: 0.3, carbon: 0.6, heavy: 0.1 } }],
+  tanks: [{ from: 0, mix: { metals: 1 } }, { from: 2, mix: { metals: 0.6, isotopes: 0.4 } }, { from: 4, mix: { metals: 0.5, carbon: 0.5 } }],
+  optics: [{ from: 0, mix: { metals: 0.5, carbon: 0.5 } }, { from: 2, mix: { metals: 0.25, carbon: 0.6, heavy: 0.15 } }],
+  crews: [{ from: 0, mix: { volatiles: 0.6, metals: 0.4 } }, { from: 2, mix: { volatiles: 0.5, carbon: 0.5 } }],
+  hold: [{ from: 0, mix: { metals: 1 } }, { from: 3, mix: { metals: 0.6, carbon: 0.4 } }],
+};
+
 export const REFITS = {
   engine: { label: 'Engine', unit: 'g', levels: [20, 32, 50, 80, 128, 200, 320, 500, 800, 1300, 2000], archive: 120 },
   hull: { label: 'Hull', unit: '', levels: [1, 1.6, 2.5, 4, 6.4, 10, 16, 25, 40, 64, 100], archive: 150 },
@@ -203,10 +260,15 @@ export type RefitTrack = keyof typeof REFITS;
 
 /** Cost of going from `level` to `level + 1` on a track. */
 export function refitCost(track: RefitTrack, level: number) {
+  const total = 90 * Math.pow(1.35, level);
+  const recipe = RECIPES[track].filter((r) => r.from <= level).pop()!;
+  const needs: Partial<Record<Material, number>> = {};
+  for (const m of MATERIALS) if (recipe.mix[m]) needs[m] = Math.round(total * recipe.mix[m]!);
   return {
     /** Knowledge needed. The Archive is not spent, only consulted. */
     archive: Math.round(REFITS[track].archive * Math.pow(1.7, level)),
-    materials: Math.round(90 * Math.pow(1.35, level)),
+    /** Stock needed, by material. */
+    needs,
     days: Math.round(45 * Math.pow(1.2, level)),
   };
 }

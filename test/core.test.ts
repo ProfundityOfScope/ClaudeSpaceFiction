@@ -93,7 +93,7 @@ test('fixed-width blocks fit a phone', () => {
   const g = Game.fresh();
   const commands = ['sweep', 'ops', 'survey', 'stay 60', 'look', 'chart close', 'plot 1', 'plot 9', 'chart far', 'plot 1', 'ship', 'refits', 'log', 'finds', 'help', 'chart', 'chart sideways'];
   // Then on through a few systems the chart picks out, so inhabited ones and ruins are covered too.
-  for (let hop = 0; hop < 6; hop++) commands.push('chart', `plot ${1 + (hop % 3)}`, 'burn', 'sweep', 'look', 'ops', 'chart close', 'chart far', 'gas', 'finds', 'ship');
+  for (let hop = 0; hop < 6; hop++) commands.push('chart', `plot ${1 + (hop % 3)}`, 'burn', 'sweep', 'survey', 'stay 60', 'mine 1 40', 'mine 2', 'look', 'ops', 'chart close', 'chart far', 'gas', 'finds', 'ship');
   for (const c of commands) {
     for (const out of g.exec(c)) {
       if (out.k !== 'pre' && out.k !== 'map') continue;

@@ -5,7 +5,7 @@
  * holds the ship, the two clocks, and what the navigator has seen and done.
  */
 import { K, Stream } from './rng.ts';
-import { REFITS, type RefitTrack } from './config.ts';
+import { REFITS, type Material, type RefitTrack } from './config.ts';
 import type { Galaxy, SysRef } from './galaxy.ts';
 import { generateSystem } from './system.ts';
 import { FANCIES, type MindState } from './mind.ts';
@@ -23,6 +23,9 @@ export interface Assignment {
   /** Days worked so far, and days needed for jobs with a fixed length. */
   days: number;
   need?: number;
+  /** For mining: which material, and how many units are still wanted (absent: until the hold is full). */
+  material?: Material;
+  quota?: number;
   /** For a deep scan: which feature, or whose ruin (a culture's id). For a refit: which track. */
   feature?: string;
   site?: string;
@@ -65,14 +68,16 @@ export interface Memory {
   sites: string[];
   /** Who was here, and in what state, when we last looked. */
   seen: SiteNote[];
+  /** What we have mined here, by "body:material", so that a seam stays as thin as we left it. */
+  taken: Record<string, number>;
 }
 
 export function freshMemory(year: number): Memory {
-  return { first: year, last: year, visits: 1, swept: false, effort: 0, found: 0, scanned: [], sites: [], seen: [] };
+  return { first: year, last: year, visits: 1, swept: false, effort: 0, found: 0, scanned: [], sites: [], seen: [], taken: {} };
 }
 
 /** Raised whenever an old save can no longer be read. Older voyages start afresh. */
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 
 export interface State {
   v: typeof SAVE_VERSION;
@@ -83,7 +88,8 @@ export interface State {
     /** Shield and hull in percent. */
     shield: number;
     hull: number;
-    materials: number;
+    /** What is in the hold, by material. They share the one hold. */
+    hold: Record<Material, number>;
     archive: number;
     levels: Record<RefitTrack, number>;
     /** Things carried in the hold that are worth more than their weight. */
@@ -110,6 +116,9 @@ export interface State {
     plots?: number;
     /** A ruin has already been remarked on this visit. */
     ruins?: boolean;
+    /** Seams already reported as thinning this visit ("body:material"), and whether hot work has been warned about. */
+    thinned?: string[];
+    hot?: boolean;
   };
   mem: Record<string, Memory>;
   /** Cultures we know of, by id. */
@@ -158,7 +167,7 @@ export function findStart(galaxy: Galaxy, cultures: Cultures = new Cultures(gala
         const sys = cultures.system(ref);
         fallback ??= ref;
         const ice = sys.bodies.some((b) => b.ice > 0);
-        const ore = sys.bodies.some((b) => b.ore > 0);
+        const ore = sys.bodies.some((b) => b.seams.some((seam) => seam.material === 'metals'));
         if (!(sys.giants > 0 && ice && ore && (sys.star === 'K' || sys.star === 'G' || sys.star === 'M'))) continue;
         const here = cultures.presence(sys, 0);
         if (here.sites.length || here.claims.length) continue;
@@ -195,7 +204,7 @@ export function freshState(galaxy: Galaxy, seed: number): State {
   return {
     v: SAVE_VERSION,
     seed,
-    ship: { fuel: 0.7 * REFITS.tanks.levels[0], shield: 78, hull: 93, materials: 40, archive: 0, levels, relics: [] },
+    ship: { fuel: 0.7 * REFITS.tanks.levels[0], shield: 78, hull: 93, hold: { volatiles: 10, metals: 30, carbon: 0, isotopes: 0, heavy: 0 }, archive: 0, levels, relics: [] },
     tShip: 0,
     tGal: 0,
     at: start.id,

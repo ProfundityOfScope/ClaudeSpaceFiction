@@ -268,11 +268,12 @@ input, textarea {
     WIND: 0.25,
     /** Shield rebuilt per day by ice richness 1..3, percent. */
     ICE: [0, 0.35, 0.7, 1.1],
-    /** Materials mined per day by ore richness 1..3. */
-    ORE: [0, 0.25, 0.55, 1],
-    /** Hull repaired per day, percent, and materials used per percent. */
+    /** Hull repaired per day, percent, and metals used per percent. */
     REPAIR_RATE: 0.35,
-    REPAIR_COST: 1.5,
+    REPAIR_COST: 1,
+    /** With no metal at all the Wrights can still patch from scrap: at this share of the usual rate, and only up to this hull condition. It is what stops a wrecked ship being stranded. */
+    SCRAP_RATE: 0.2,
+    SCRAP_LIMIT: 30,
     /** Survey pacing: finds come at -tau * ln(1 - (k - 0.5) / K), tau = A + B * K days. */
     SURVEY_A: 14,
     SURVEY_B: 5,
@@ -285,6 +286,36 @@ input, textarea {
     HINT_SHARE: 0.25,
     /** Bonus multiplier the first time a kind of thing is logged. */
     FIRST_BONUS: 1.5
+  };
+  var MATERIALS = ["volatiles", "metals", "carbon", "isotopes", "heavy"];
+  var MATERIAL = {
+    volatiles: { short: "vol", name: "volatiles" },
+    metals: { short: "met", name: "metals" },
+    carbon: { short: "car", name: "carbon" },
+    isotopes: { short: "iso", name: "isotopes" },
+    heavy: { short: "hvy", name: "heavy elements" }
+  };
+  var ISRU = {
+    /** Units a day from a fresh seam of grade 1..3, before the kind of body is counted. */
+    GRADE: [0, 0.5, 0.9, 1.4],
+    /** How easily material comes off each kind of body: free fall is quick, a deep gravity well is slow. */
+    WELL: { star: 0.3, belt: 1, comets: 0.9, dwarf: 0.8, icegiant: 0.75, scorched: 0.7, ice: 0.6, gas: 0.5, rocky: 0.45, desert: 0.45, ocean: 0.35 },
+    /**
+     * Seams thin out. A body cannot run dry at this scale, but its easy seam
+     * can: the rate falls as exp(-taken / size) toward FLOOR of what it began
+     * at. SIZE is the range a seam's size is drawn from, by material.
+     */
+    FLOOR: 0.15,
+    SIZE: { volatiles: [1500, 3500], metals: [600, 1400], carbon: [350, 900], isotopes: [3e3, 6e3], heavy: [150, 450] },
+    /** A seam is called thin once it gives less than this share of what it did fresh. */
+    THIN: 0.6,
+    /** Hot work, percent a day for each crew at it: heat wears the hull, radiation the shield. */
+    HEAT: 0.06,
+    RADIATION: 0.15,
+    /** The Mind pulls crews off hot work when the hull falls to this. */
+    HOT_RECALL: 45,
+    /** How much of each seam a culture in the system has already had, in seam sizes, by its phase. An outpost has had half as much. */
+    WORKED: { founding: 0.1, rising: 0.5, height: 1, decline: 1.3, ruins: 1.3, "old ruins": 1.3 }
   };
   var CIV = {
     ERA: 8e3,
@@ -333,6 +364,14 @@ input, textarea {
     /** Archive credit for meeting a living culture for the first time. */
     MEET_ARCHIVE: 8
   };
+  var RECIPES = {
+    engine: [{ from: 0, mix: { isotopes: 0.6, metals: 0.4 } }, { from: 3, mix: { isotopes: 0.6, metals: 0.3, heavy: 0.1 } }, { from: 6, mix: { isotopes: 0.6, metals: 0.2, heavy: 0.2 } }],
+    hull: [{ from: 0, mix: { metals: 1 } }, { from: 2, mix: { metals: 0.6, carbon: 0.4 } }, { from: 6, mix: { metals: 0.3, carbon: 0.6, heavy: 0.1 } }],
+    tanks: [{ from: 0, mix: { metals: 1 } }, { from: 2, mix: { metals: 0.6, isotopes: 0.4 } }, { from: 4, mix: { metals: 0.5, carbon: 0.5 } }],
+    optics: [{ from: 0, mix: { metals: 0.5, carbon: 0.5 } }, { from: 2, mix: { metals: 0.25, carbon: 0.6, heavy: 0.15 } }],
+    crews: [{ from: 0, mix: { volatiles: 0.6, metals: 0.4 } }, { from: 2, mix: { volatiles: 0.5, carbon: 0.5 } }],
+    hold: [{ from: 0, mix: { metals: 1 } }, { from: 3, mix: { metals: 0.6, carbon: 0.4 } }]
+  };
   var REFITS = {
     engine: { label: "Engine", unit: "g", levels: [20, 32, 50, 80, 128, 200, 320, 500, 800, 1300, 2e3], archive: 120 },
     hull: { label: "Hull", unit: "", levels: [1, 1.6, 2.5, 4, 6.4, 10, 16, 25, 40, 64, 100], archive: 150 },
@@ -342,10 +381,15 @@ input, textarea {
     hold: { label: "Hold", unit: "", levels: [150, 250, 400, 650, 1e3, 1600], archive: 90 }
   };
   function refitCost(track, level2) {
+    const total = 90 * Math.pow(1.35, level2);
+    const recipe = RECIPES[track].filter((r) => r.from <= level2).pop();
+    const needs = {};
+    for (const m of MATERIALS) if (recipe.mix[m]) needs[m] = Math.round(total * recipe.mix[m]);
     return {
       /** Knowledge needed. The Archive is not spent, only consulted. */
       archive: Math.round(REFITS[track].archive * Math.pow(1.7, level2)),
-      materials: Math.round(90 * Math.pow(1.35, level2)),
+      /** Stock needed, by material. */
+      needs,
       days: Math.round(45 * Math.pow(1.2, level2))
     };
   }
@@ -370,7 +414,8 @@ input, textarea {
     CULTURE: 16,
     SPECIES: 17,
     HOLD: 18,
-    RELIC: 19
+    RELIC: 19,
+    SEAM: 20
   };
   function fmix(h) {
     h ^= h >>> 16;
@@ -1612,7 +1657,7 @@ input, textarea {
     return { gas: 34 * giants, icegiant: 24, ice: 22, belt: 8, dwarf: 12 };
   }
   function makeBody(n, kind, au, feh, snow, rng) {
-    const b = { n, kind, au, moons: 0, rings: false, fuel: 0, ice: 0, ore: 0 };
+    const b = { n, kind, au, moons: 0, rings: false, fuel: 0, ice: 0, ore: 0, seams: [] };
     switch (kind) {
       case "gas":
         b.moons = Math.round(rng.range(0, 16));
@@ -1656,7 +1701,73 @@ input, textarea {
         b.ore = rng.chance(0.4) ? 2 : 1;
         break;
     }
-    return b;
+    const { ore, ...body } = b;
+    return { body, ore };
+  }
+  function seamsFor(b, ore, star, feh, snow, rng) {
+    const seams = [];
+    const add = (material, grade) => {
+      if (grade < 1) return;
+      const [lo, hi] = ISRU.SIZE[material];
+      seams.push({ material, grade: clamp(Math.round(grade), 1, 3), size: Math.round(rng.range(lo, hi)) });
+    };
+    const fierce = star === "PSR" || star === "MAG" || star === "BH";
+    switch (b.kind) {
+      case "belt":
+        add("metals", ore);
+        if (rng.chance(b.au > snow ? 0.45 : 0.2)) add("carbon", rng.chance(0.3) ? 2 : 1);
+        if (b.au > snow) add("volatiles", 1);
+        break;
+      case "scorched":
+        add("metals", b.hot ? ore + 1 : ore);
+        break;
+      case "rocky":
+      case "desert":
+        add("metals", ore);
+        break;
+      case "ocean":
+        add("volatiles", 2);
+        break;
+      case "ice":
+        add("volatiles", b.ice);
+        if (ore) add("metals", 1);
+        if (rng.chance(0.25)) add("carbon", 1);
+        break;
+      case "dwarf":
+        add("volatiles", 1);
+        add("metals", 1);
+        if (rng.chance(0.3)) add("carbon", 1);
+        break;
+      case "comets":
+        add("volatiles", b.ice);
+        if (rng.chance(0.5)) add("carbon", rng.chance(0.3) ? 2 : 1);
+        break;
+      case "gas":
+        add("isotopes", rng.chance(0.3) ? 2 : 1);
+        break;
+      case "icegiant":
+        add("isotopes", rng.chance(0.5) ? 3 : 2);
+        if (rng.chance(0.2)) add("carbon", 1);
+        break;
+      case "star":
+        if (star === "RG") add("carbon", 1);
+        if (star === "RSG" || star === "WR") add("carbon", 2);
+        if (fierce) add("heavy", star === "BH" ? 2 : rng.chance(0.4) ? 2 : 1);
+        break;
+    }
+    if (b.kind === "belt" || b.kind === "scorched" || b.kind === "dwarf") {
+      if (fierce) add("heavy", rng.chance(0.5) ? 3 : 2);
+      else if (star === "WD" && rng.chance(0.35)) add("heavy", 1);
+      else if (b.kind === "belt" && feh > 0.3 && rng.chance(0.15)) add("heavy", 1);
+    }
+    return seams;
+  }
+  function hotFor(b, star, warm) {
+    if (star === "PSR" || star === "MAG" || star === "BH") return "radiation";
+    if (b.kind === "star") return star === "WR" ? "radiation" : void 0;
+    if (b.kind === "scorched" && b.au < 0.11 * warm) return "heat";
+    if (b.kind === "gas" && b.au < 0.12 * warm) return "heat";
+    return void 0;
   }
   function featureFits(def, body, star) {
     if (!def.on.includes(body.kind)) return false;
@@ -1683,16 +1794,25 @@ input, textarea {
     const warm = Math.sqrt(info.lum);
     const snow = 2.7 * warm;
     const giantBoost = star === "BD" ? 0 : clamp(Math.pow(10, feh), 0.3, 2.5);
-    const bodies = [{ n: 0, kind: "star", au: 0, moons: 0, rings: false, fuel: 0, ice: 0, ore: 0 }];
+    const bodies = [{ n: 0, kind: "star", au: 0, moons: 0, rings: false, fuel: 0, ice: 0, seams: [] }];
+    const ores = [0];
+    const push = (made) => {
+      bodies.push(made.body);
+      ores.push(made.ore);
+    };
     let au = warm * brng.range(0.08, 0.3);
     for (let i = 0; i < count; i++) {
       const kind = brng.weighted(zoneTable(star, au, warm, snow, giantBoost));
-      bodies.push(makeBody(bodies.length, kind, au, feh, snow, brng));
+      push(makeBody(bodies.length, kind, au, feh, snow, brng));
       au *= brng.range(1.45, 2.4);
     }
     const haloChance = info.remnant ? 0.35 : info.lum > 100 ? 0.3 : 0.75;
     if (brng.chance(haloChance)) {
-      bodies.push(makeBody(bodies.length, "comets", Math.max(au * 4, snow * 15, 30), feh, snow, brng));
+      push(makeBody(bodies.length, "comets", Math.max(au * 4, snow * 15, 30), feh, snow, brng));
+    }
+    for (const b of bodies) {
+      b.hot = hotFor(b, star, warm);
+      b.seams = seamsFor(b, ores[b.n], star, feh, snow, new Stream(seed, K.SEAM, h, b.n));
     }
     const frng = new Stream(seed, K.FEATURE, h);
     let anomaly = frng.chance(6e-3);
@@ -1740,7 +1860,7 @@ input, textarea {
     else if (ref.cluster) name = `${ref.cluster.name} ${(ref.stratum === 1 ? 400 : 0) + ref.index + 1}`;
     else name = `${galaxy.sector(ref.x, ref.y).split(" ")[0]} ${catalogueCode(nrng)}`;
     const giants = bodies.filter((b) => b.kind === "gas" || b.kind === "icegiant").length;
-    const dust = bodies.reduce((m, b) => b.kind === "belt" || b.kind === "comets" ? Math.max(m, b.ore, b.ice) : m, 0);
+    const dust = bodies.reduce((m, b) => b.kind === "belt" || b.kind === "comets" ? Math.max(m, ores[b.n], b.ice) : m, 0);
     return { ref, name, star, companion, feh, bodies, discoveries: keyed.map((k) => k.d), giants, dust, anomaly };
   }
   var BODY_WORD = {
@@ -2608,6 +2728,16 @@ input, textarea {
     signal_first: [
       "Number {n} is broadcasting. Structured, repeating, nothing a star does. Somebody is home there, or was {light} ago when that light left."
     ],
+    hot_work: [
+      "That is hot work. Each day a crew spends at {where} costs us {cost}. I'll say when it has cost enough.",
+      "For the record: {where} takes {cost} a day from us while a crew is there. Your call, and I am counting.",
+      "It can be done. It costs {cost} for every day at {where}, and I'd want a reason."
+    ],
+    seam_thin: [
+      "We have had the best of it. A system is a big place, but the easy part of it is not.",
+      "That seam has given what it gives freely. The rest is there; it just isn't in a hurry.",
+      "Diminishing returns. I mention it in case somewhere else has started to look better."
+    ],
     civ_first: [
       "So we are not the only ones out here. I had assumed as much. It is different to see the lights.",
       "People. Not ours. I have had a greeting drafted for some centuries, and now none of it seems right."
@@ -2796,9 +2926,9 @@ input, textarea {
 
   // src/core/state.ts
   function freshMemory(year) {
-    return { first: year, last: year, visits: 1, swept: false, effort: 0, found: 0, scanned: [], sites: [], seen: [] };
+    return { first: year, last: year, visits: 1, swept: false, effort: 0, found: 0, scanned: [], sites: [], seen: [], taken: {} };
   }
-  var SAVE_VERSION = 2;
+  var SAVE_VERSION = 3;
   function level(state, track) {
     return REFITS[track].levels[state.ship.levels[track]];
   }
@@ -2822,7 +2952,7 @@ input, textarea {
           const sys = cultures.system(ref);
           fallback ?? (fallback = ref);
           const ice = sys.bodies.some((b) => b.ice > 0);
-          const ore = sys.bodies.some((b) => b.ore > 0);
+          const ore = sys.bodies.some((b) => b.seams.some((seam) => seam.material === "metals"));
           if (!(sys.giants > 0 && ice && ore && (sys.star === "K" || sys.star === "G" || sys.star === "M"))) continue;
           const here = cultures.presence(sys, 0);
           if (here.sites.length || here.claims.length) continue;
@@ -2856,7 +2986,7 @@ input, textarea {
     return {
       v: SAVE_VERSION,
       seed,
-      ship: { fuel: 0.7 * REFITS.tanks.levels[0], shield: 78, hull: 93, materials: 40, archive: 0, levels, relics: [] },
+      ship: { fuel: 0.7 * REFITS.tanks.levels[0], shield: 78, hull: 93, hold: { volatiles: 10, metals: 30, carbon: 0, isotopes: 0, heavy: 0 }, archive: 0, levels, relics: [] },
       tShip: 0,
       tGal: 0,
       at: start.id,
@@ -2990,6 +3120,7 @@ input, textarea {
     "ask",
     "ship",
     "refit",
+    "dump",
     "log",
     "finds",
     "name",
@@ -3191,6 +3322,9 @@ input, textarea {
         case "refit":
           this.refit(arg);
           break;
+        case "dump":
+          this.dump(arg);
+          break;
         case "log":
           this.log();
           break;
@@ -3258,7 +3392,7 @@ input, textarea {
         fuel: this.fuelPct,
         shield: s.ship.shield,
         hull: s.ship.hull,
-        materials: s.ship.materials,
+        materials: this.stock,
         hold: level(s, "hold"),
         archive: s.ship.archive
       };
@@ -3308,14 +3442,19 @@ input, textarea {
       for (const site of this.ruins()) out.push({ body: site.body, days: site.kind === "home" ? CIV.DIG_HOME : CIV.DIG_OUTPOST, site });
       return out;
     }
+    /** What a body offers, in the 13 columns the table has for it: the best of it first, the rest left to "ops". */
     workWords(b) {
-      if (b.kind === "star") return STARS[this.here.star].wind ? "wind" : "-";
-      const mark = (r) => this.charted(b.n) ? PLUS[r] : "?";
-      const parts = [];
-      if (b.fuel) parts.push(`fuel${mark(b.fuel)}`);
-      if (b.ice) parts.push(`ice${mark(b.ice)}`);
-      if (b.ore) parts.push(`ore${mark(b.ore)}`);
-      while (parts.join(" ").length > 12) parts.pop();
+      const known = this.known(b);
+      const mark = (r) => known ? PLUS[r] : "?";
+      const offers = [];
+      if (b.kind === "star" && STARS[this.here.star].wind) offers.push({ text: "wind", worth: 1 });
+      if (b.fuel) offers.push({ text: `fuel${mark(b.fuel)}`, worth: b.fuel });
+      if (!known && b.seams.length) offers.push({ text: "ore?", worth: 0.5 });
+      if (known) for (const seam of b.seams) offers.push({ text: `${MATERIAL[seam.material].short}${PLUS[seam.grade]}`, worth: seam.grade + (seam.material === "heavy" ? 2 : seam.material === "carbon" ? 1.01 : 0) });
+      if (b.ice) offers.push({ text: `ice${mark(b.ice)}`, worth: b.ice - 0.1 });
+      offers.sort((x, y) => y.worth - x.worth);
+      const parts = b.hot ? ["hot"] : [];
+      for (const o of offers) if ([...parts, o.text].join(" ").length <= 13) parts.push(o.text);
       return parts.join(" ") || "-";
     }
     systemTable() {
@@ -3348,11 +3487,11 @@ input, textarea {
       }
       const lines = [strip.trimEnd(), index.trimEnd()];
       if (posted.trim()) lines.push(posted.trimEnd());
-      lines.push("", " #  body                  au  work");
+      lines.push("", " #  body                  au work");
       for (const b of sys.bodies) {
         const au = b.n === 0 ? "-" : b.au < 1 ? b.au.toFixed(2) : b.au < 10 ? b.au.toFixed(1) : String(Math.round(b.au));
         const mark = hinted.has(b.n) ? "!" : lived.has(b.n) ? "^" : " ";
-        lines.push(`${lpad(String(b.n), 2)}${mark} ${pad(bodyLabel(b), 19)}${lpad(au, 5)}  ${this.workWords(b)}`);
+        lines.push(`${lpad(String(b.n), 2)}${mark} ${pad(bodyLabel(b), 19)}${lpad(au, 5)} ${this.workWords(b)}`);
       }
       return lines;
     }
@@ -3514,6 +3653,7 @@ input, textarea {
       const legend = [`survey ${k ? Math.round(100 * this.mem.found / k) : 100}%`, "! marks something worth a deep scan"];
       if (lived) legend.push("^ somebody lives there");
       if (this.state.crews.some((c) => c && c.body >= 0)) legend.push("c1 under a body is crew 1 at work there");
+      if (sys.bodies.some((b) => b.hot)) legend.push("hot: work there wears the ship");
       if (k || lived || this.scanTargets().length) this.dim(legend.join(" \xB7 "));
     }
     sweep() {
@@ -3543,7 +3683,7 @@ input, textarea {
       if (sys.anomaly) this.say("sweep_anomaly");
       else if (bodies === 0) this.say("sweep_empty");
       else if (sys.giants === 0) this.say("sweep_nogiant");
-      else if (has((b) => b.ice > 0) && has((b) => b.ore > 1) && bodies >= 5) this.say("sweep_rich");
+      else if (has((b) => b.ice > 0) && has((b) => b.seams.some((x) => x.material === "metals" && x.grade > 1)) && bodies >= 5) this.say("sweep_rich");
       this.sayOnce(`star_${sys.star}`, `star_${sys.star}`);
     }
     // ---- crews and work -----------------------------------------------------
@@ -3564,8 +3704,12 @@ input, textarea {
         }
         case "ice":
           return `ice from ${bodyRef(sys, a.body)}: whole in ${eta((100 - s.ship.shield) / TUNE.ICE[sys.bodies[a.body].ice])}`;
-        case "mine":
-          return `mine ${bodyRef(sys, a.body)}: ${TUNE.ORE[sys.bodies[a.body].ore]} a day`;
+        case "mine": {
+          const b = sys.bodies[a.body];
+          const seam = b.seams.find((x) => x.material === a.material);
+          const progress = a.quota === void 0 ? `${(seam ? this.seamRate(b, seam) : 0).toFixed(2)} a day` : `${Math.ceil(a.quota)} to go`;
+          return `mine ${bodyRef(sys, a.body)} ${MATERIAL[a.material ?? "metals"].short}: ${progress}`;
+        }
         case "survey": {
           const next = this.mem.found < sys.discoveries.length ? this.surveyDay(this.mem.found + 1) - this.mem.effort : Infinity;
           return `survey: next find in about ${eta(next)}`;
@@ -3581,6 +3725,76 @@ input, textarea {
     scoopRate(b) {
       return b.kind === "star" ? TUNE.WIND : TUNE.SCOOP[b.fuel];
     }
+    /** Everything in the hold, added up. */
+    get stock() {
+      return MATERIALS.reduce((sum, m) => sum + this.state.ship.hold[m], 0);
+    }
+    /** Has the survey said what this body holds? The star needs no survey: the sweep is enough. */
+    known(b) {
+      return b.kind === "star" ? this.mem.swept : this.charted(b.n);
+    }
+    /** What a seam gives a day when nobody has touched it. */
+    freshRate(b, seam) {
+      return ISRU.GRADE[seam.grade] * ISRU.WELL[b.kind];
+    }
+    /** How much of a seam the people of this system have already had, in units. Each has worked each seam to its own extent. */
+    workedByOthers(b, seam) {
+      let share = 0;
+      for (const site of this.people().sites) {
+        const extent = 0.2 + 0.8 * (mix(this.state.seed, K.SEAM, strHash(site.culture.id), strHash(this.state.at), b.n, MATERIALS.indexOf(seam.material)) / 4294967296);
+        share += ISRU.WORKED[site.phase] * (site.kind === "home" ? 1 : 0.5) * extent;
+      }
+      return share * seam.size;
+    }
+    /** What a seam gives a day now: less the more has been taken from it, by us or by anyone who lives here. */
+    seamRate(b, seam) {
+      const taken = (this.mem.taken[`${b.n}:${seam.material}`] ?? 0) + this.workedByOthers(b, seam);
+      return this.freshRate(b, seam) * (ISRU.FLOOR + (1 - ISRU.FLOOR) * Math.exp(-taken / seam.size));
+    }
+    /** Every seam a crew could be put on: on a body the survey has charted, that is nobody's home. */
+    openSeams() {
+      const homes = this.homes();
+      return this.here.bodies.filter((b) => this.known(b) && !homes.has(b.n)).flatMap((b) => b.seams.map((seam) => ({ b, seam, rate: this.seamRate(b, seam) })));
+    }
+    /**
+     * The refit worth gathering for. The hold cannot carry stock for all of
+     * them at once, so one is aimed at: of those the Archive already allows, the
+     * one this system can best supply and the hold is nearest to paying for;
+     * failing that, the next the Archive will allow.
+     */
+    refitAim() {
+      const s = this.state;
+      const tracks = Object.keys(REFITS).filter((t) => s.ship.levels[t] < REFITS[t].levels.length - 1 && !s.crews.some((c) => c?.op === "refit" && c.track === t));
+      const cost = (t) => refitCost(t, s.ship.levels[t]);
+      const short = (t) => MATERIALS.reduce((sum, m) => sum + Math.max(0, (cost(t).needs[m] ?? 0) - s.ship.hold[m]), 0);
+      const here = new Set(this.mem.swept ? this.openSeams().map((x) => x.seam.material) : MATERIALS);
+      const blocked = (t) => MATERIALS.reduce((sum, m) => sum + (here.has(m) ? 0 : Math.max(0, (cost(t).needs[m] ?? 0) - s.ship.hold[m])), 0);
+      const open = tracks.filter((t) => s.ship.archive >= cost(t).archive).sort((a, b) => blocked(a) - blocked(b) || short(a) - short(b))[0];
+      if (open) return { track: open, open: true };
+      const next = tracks.sort((a, b) => cost(a).archive - cost(b).archive)[0];
+      return next ? { track: next, open: false } : null;
+    }
+    /**
+     * What the hold is short of. `now` is pressing: metal to mend the hull, and
+     * whatever the refit being aimed at still needs if the Archive already
+     * allows it. `later` is the same refit's needs when the Archive does not yet.
+     */
+    wanted() {
+      const s = this.state;
+      const now = { volatiles: 0, metals: 20 + (100 - s.ship.hull) * TUNE.REPAIR_COST, carbon: 0, isotopes: 0, heavy: 0 };
+      const later = { volatiles: 0, metals: 0, carbon: 0, isotopes: 0, heavy: 0 };
+      const aim = this.refitAim();
+      if (aim) {
+        const needs = refitCost(aim.track, s.ship.levels[aim.track]).needs;
+        for (const m of MATERIALS) (aim.open ? now : later)[m] += needs[m] ?? 0;
+      }
+      for (const m of MATERIALS) {
+        const have = s.ship.hold[m];
+        later[m] = Math.max(0, later[m] - Math.max(0, have - now[m]));
+        now[m] = Math.max(0, now[m] - have);
+      }
+      return { now, later };
+    }
     /** Jobs a free crew could usefully take, most pressing first. */
     suggestions() {
       const sys = this.here;
@@ -3588,20 +3802,32 @@ input, textarea {
       if (!this.mem.swept) return [];
       const busy = (op, body = -1) => s.crews.some((c) => c && c.op === op && (body < 0 || c.body === body));
       const homes = this.homes();
-      const best = (key) => sys.bodies.filter((b) => b[key] > 0 && !homes.has(b.n)).sort((a, b) => b[key] - a[key])[0];
+      const best = (key) => sys.bodies.filter((b) => b[key] > 0 && !homes.has(b.n) && !b.hot).sort((a, b) => b[key] - a[key])[0];
       const jobs = [];
       const giant = best("fuel");
       if (this.fuelPct < 90 && !busy("scoop")) {
         if (giant) jobs.push(`scoop ${giant.n}`);
-        else if (STARS[sys.star].wind && this.fuelPct < 40) jobs.push("scoop 0");
+        else if (STARS[sys.star].wind && !sys.bodies[0].hot && this.fuelPct < 40) jobs.push("scoop 0");
       }
       const ice = best("ice");
       if (ice && s.ship.shield < 90 && !busy("ice")) jobs.push(`ice ${ice.n}`);
       for (const body of new Set(this.scanTargets().map((t) => t.body))) if (!busy("scan", body)) jobs.push(`scan ${body}`);
       if (this.mem.found < sys.discoveries.length && !busy("survey")) jobs.push("survey");
-      if (s.ship.hull < 85 && s.ship.materials >= 5 && !busy("repair")) jobs.push("repair");
-      const ore = best("ore");
-      if (ore && s.ship.materials < level(s, "hold") - 5 && !busy("mine")) jobs.push(`mine ${ore.n}`);
+      if (s.ship.hull < 85 && (s.ship.hold.metals >= 5 || s.ship.hull < TUNE.SCRAP_LIMIT) && !busy("repair")) jobs.push("repair");
+      const room = level(s, "hold") - this.stock;
+      if (room > 5) {
+        const { now, later } = this.wanted();
+        const amount = (m) => now[m] > 0 ? now[m] : this.stock < 0.6 * level(s, "hold") ? later[m] : 0;
+        const open = this.openSeams().filter((x) => amount(x.seam.material) > 0 && !s.crews.some((c) => c && c.op === "mine" && c.material === x.seam.material));
+        const fit = open.filter((x) => !x.b.hot || !open.some((y) => !y.b.hot && y.seam.material === x.seam.material));
+        fit.sort((x, y) => Number(now[y.seam.material] > 0) - Number(now[x.seam.material] > 0) || y.rate - x.rate);
+        const offered = /* @__PURE__ */ new Set();
+        for (const x of fit) {
+          if (offered.has(x.seam.material)) continue;
+          offered.add(x.seam.material);
+          jobs.push(`mine ${x.b.n} ${MATERIAL[x.seam.material].short} ${Math.ceil(Math.min(room, amount(x.seam.material)))}`);
+        }
+      }
       return jobs;
     }
     ops() {
@@ -3618,19 +3844,26 @@ input, textarea {
       for (const b of open) {
         const rate = this.scoopRate(b);
         if (b.kind === "star" ? STARS[sys.star].wind : b.fuel > 0) {
-          lines.push(`  ${pad(`scoop ${b.n}`, 9)} fuel +${rate}%/day${b.kind === "star" ? " (wind)" : ""}`);
+          lines.push(`  ${pad(`scoop ${b.n}`, 9)} fuel +${rate}%/day${b.kind === "star" ? " (wind)" : ""}${b.hot ? " hot" : ""}`);
         }
       }
-      for (const b of open) if (b.ice) lines.push(`  ${pad(`ice ${b.n}`, 9)} shield +${TUNE.ICE[b.ice]}%/day`);
-      for (const b of open) if (b.ore) lines.push(`  ${pad(`mine ${b.n}`, 9)} materials +${TUNE.ORE[b.ore]}/day`);
+      for (const b of open) if (b.ice) lines.push(`  ${pad(`ice ${b.n}`, 9)} shield +${TUNE.ICE[b.ice]}%/day${b.hot ? " hot" : ""}`);
+      for (const { b, seam, rate } of this.openSeams()) {
+        const thin = rate < ISRU.THIN * this.freshRate(b, seam) ? " thin" : "";
+        lines.push(`  ${pad(`mine ${b.n} ${seam.material}`, 16)} +${rate.toFixed(2)}/day${thin}${b.hot ? " hot" : ""}`);
+      }
+      if (open.some((b) => b.seams.length && !this.known(b))) lines.push("  (more to mine, once it is surveyed)");
       const total = sys.discoveries.length;
       if (total) lines.push(`  ${pad("survey", 9)} ${Math.round(100 * this.mem.found / total)}% done`);
       for (const t of this.scanTargets()) {
         lines.push(`  ${pad(`scan ${t.body}`, 9)} ${t.site ? "ruins" : "oddity"}, ~${t.days} days`);
       }
-      if (s.ship.hull < 99.5) lines.push(`  ${pad("repair", 9)} hull ${Math.round(s.ship.hull)}%, ${TUNE.REPAIR_COST} mat per %`);
+      if (s.ship.hull < 99.5) lines.push(`  ${pad("repair", 9)} hull ${Math.round(s.ship.hull)}%, ${TUNE.REPAIR_COST} met per %`);
       this.pre(lines);
       this.dim('Assign with the command shown. "recall 1" frees a crew. "stay" lets the days run.');
+      const others = this.people().sites.map((x) => x.culture.title);
+      if (others.length && this.openSeams().length) this.dim(`${capital([...new Set(others)].join(" and "))} ${others.length === 1 ? "has" : "have"} worked this system. Its seams are thinner for it.`);
+      if (sys.bodies.some((b) => b.hot)) this.dim(`Hot work costs the ship for each day a crew is at it: ${ISRU.HEAT}% of hull where it is heat, ${ISRU.RADIATION}% of shield where it is radiation.`);
     }
     assign(op, arg) {
       const sys = this.here;
@@ -3647,13 +3880,14 @@ input, textarea {
       let body = -1;
       const job = { op, body: -1, days: 0 };
       if (op === "scoop" || op === "ice" || op === "mine" || op === "scan") {
-        body = Number(arg);
+        const words = arg.trim().split(/\s+/);
+        body = Number(words[0]);
         const b = sys.bodies[body];
         if (arg === "" || !Number.isInteger(body) || !b) {
           this.text(`Which body? For example "${op} ${op === "scoop" ? sys.bodies.find((x) => x.fuel)?.n ?? 0 : 1}".`);
           return;
         }
-        if (s.crews.some((c) => c && c.op === op && c.body === body)) {
+        if (op !== "mine" && s.crews.some((c) => c && c.op === op && c.body === body)) {
           this.text("A crew is already on that.");
           return;
         }
@@ -3670,9 +3904,30 @@ input, textarea {
           this.text(`No ice worth cutting at ${ref}.`);
           return;
         }
-        if (op === "mine" && !b.ore) {
-          this.text(`Nothing worth mining at ${ref}.`);
-          return;
+        if (op === "mine") {
+          if (!this.known(b)) {
+            this.text(`The Surveyors have not said what ${ref} holds yet. Put a crew on "survey" and it will come.`);
+            return;
+          }
+          const amount = words.slice(1).find((w) => /^\d+$/.test(w));
+          const word = (words.slice(1).find((w) => !/^\d+$/.test(w)) ?? "").toLowerCase();
+          const named = (x) => x.material.startsWith(word) || MATERIAL[x.material].short === word || MATERIAL[x.material].name.startsWith(word);
+          const seam = word ? b.seams.find(named) : [...b.seams].sort((x, y) => this.seamRate(b, y) - this.seamRate(b, x))[0];
+          if (!seam) {
+            const has = b.seams.map((x) => MATERIAL[x.material].name).join(" and ");
+            this.text(b.seams.length ? `No "${word}" at ${ref}. It has ${has}.` : `Nothing worth mining at ${ref}.`);
+            return;
+          }
+          if (s.crews.some((c) => c && c.op === "mine" && c.body === body && c.material === seam.material)) {
+            this.text("A crew is already on that.");
+            return;
+          }
+          if (this.stock >= level(s, "hold") - 0.5) {
+            this.text('The hold is full. Use some of it, or "dump" what we need least.');
+            return;
+          }
+          job.material = seam.material;
+          if (amount !== void 0 && Number(amount) > 0) job.quota = Number(amount);
         }
         if (op === "scan") {
           const target = this.scanTargets().find((t) => t.body === body);
@@ -3695,13 +3950,18 @@ input, textarea {
           this.text("The hull is sound.");
           return;
         }
-        if (s.ship.materials < 1) {
-          this.text("The Wrights have nothing to mend with. Mine something first.");
+        if (s.ship.hold.metals < 1 && s.ship.hull >= TUNE.SCRAP_LIMIT) {
+          this.text("The Wrights have no metal to mend with. Mine some first.");
           return;
         }
       }
       s.crews[free] = job;
       this.text(`Crew ${free + 1}: ${this.describe(job)}.`);
+      const where = job.body >= 0 && op !== "scan" ? sys.bodies[job.body] : null;
+      if (where?.hot && !s.visit.hot) {
+        s.visit.hot = true;
+        this.say("hot_work", { where: bodyRef(sys, job.body), cost: where.hot === "heat" ? `${ISRU.HEAT}% of the hull` : `${ISRU.RADIATION}% of the shield` });
+      }
     }
     recall(arg) {
       const s = this.state;
@@ -3733,7 +3993,8 @@ input, textarea {
         const worth = [];
         if (b.fuel) worth.push(`fuel ${RICH[b.fuel]}`);
         if (b.ice) worth.push(`ice ${RICH[b.ice]}`);
-        if (b.ore) worth.push(`ore ${RICH[b.ore]}`);
+        for (const seam of b.seams) worth.push(`${MATERIAL[seam.material].name} ${RICH[seam.grade]}`);
+        if (b.hot) worth.push("hot work");
         s.ship.archive += TUNE.ARCHIVE_BODY;
         charted.push(`${bodyRef(sys, d.body)} (${worth.join(", ") || "nothing to work"})`);
         return false;
@@ -3851,7 +4112,7 @@ input, textarea {
         this.text("No crew is working, so nothing would change but the date. Give a number of days to wait anyway.");
         return;
       }
-      const before = { fuel: this.fuelPct, shield: s.ship.shield, hull: s.ship.hull, materials: s.ship.materials, archive: s.ship.archive };
+      const before = { fuel: this.fuelPct, shield: s.ship.shield, hull: s.ship.hull, materials: this.stock, archive: s.ship.archive };
       const hold = level(s, "hold");
       const charted = [];
       let idle = 0;
@@ -3875,6 +4136,18 @@ input, textarea {
           };
           a.days++;
           worked = true;
+          const where = a.op === "scoop" || a.op === "ice" || a.op === "mine" ? sys.bodies[a.body] : null;
+          if (where?.hot === "heat") s.ship.hull = Math.max(TUNE.HULL_FLOOR, s.ship.hull - ISRU.HEAT);
+          if (where?.hot === "radiation") {
+            if (s.ship.shield > 0) s.ship.shield = Math.max(0, s.ship.shield - ISRU.RADIATION);
+            else s.ship.hull = Math.max(TUNE.HULL_FLOOR, s.ship.hull - ISRU.RADIATION / 2);
+          }
+          if (where?.hot && s.ship.hull <= ISRU.HOT_RECALL) {
+            s.crews[i] = null;
+            this.mindSays(`Day ${day}. I have pulled crew ${i + 1} off ${bodyRef(sys, a.body)}. The hull is at ${Math.round(s.ship.hull)}% and that work was costing us more of it.`);
+            if (auto) stop = true;
+            continue;
+          }
           switch (a.op) {
             case "scoop":
               s.ship.fuel = Math.min(this.tank, s.ship.fuel + this.scoopRate(sys.bodies[a.body]) / 100 * this.tank);
@@ -3884,10 +4157,32 @@ input, textarea {
               s.ship.shield = Math.min(100, s.ship.shield + TUNE.ICE[sys.bodies[a.body].ice]);
               if (s.ship.shield >= 100) done("shield whole.");
               break;
-            case "mine":
-              s.ship.materials = Math.min(hold, s.ship.materials + TUNE.ORE[sys.bodies[a.body].ore]);
-              if (s.ship.materials >= hold) done("the hold is full.");
+            case "mine": {
+              const b = sys.bodies[a.body];
+              const seam = b.seams.find((x) => x.material === a.material);
+              if (!seam) {
+                s.crews[i] = null;
+                break;
+              }
+              const key = `${b.n}:${seam.material}`;
+              const fresh = this.freshRate(b, seam);
+              const was = this.seamRate(b, seam);
+              const got = Math.min(was, hold - this.stock);
+              s.ship.hold[seam.material] += got;
+              this.mem.taken[key] = (this.mem.taken[key] ?? 0) + got;
+              if (a.quota !== void 0) a.quota -= got;
+              if (this.stock >= hold - 1e-3) {
+                done("the hold is full.");
+              } else if (a.quota !== void 0 && a.quota <= 1e-3) {
+                done(`${MATERIAL[seam.material].name} aboard, as much as was asked for.`);
+              } else if (was >= ISRU.THIN * fresh && this.seamRate(b, seam) < ISRU.THIN * fresh) {
+                this.text(`Day ${day}. The easy ${MATERIAL[seam.material].name} at ${bodyRef(sys, b.n)} ${seam.material === "carbon" ? "is" : "are"} gone. What is left comes slower.`);
+                if (!(s.visit.thinned ?? []).length) this.say("seam_thin");
+                s.visit.thinned = [...s.visit.thinned ?? [], key];
+                if (auto) stop = true;
+              }
               break;
+            }
             case "survey": {
               this.mem.effort++;
               const total = sys.discoveries.length;
@@ -3914,11 +4209,16 @@ input, textarea {
               }
               break;
             case "repair": {
-              const step = Math.min(TUNE.REPAIR_RATE, 100 - s.ship.hull, s.ship.materials / TUNE.REPAIR_COST);
+              if (s.ship.hold.metals < 0.01) {
+                s.ship.hull += TUNE.REPAIR_RATE * TUNE.SCRAP_RATE;
+                if (s.ship.hull >= TUNE.SCRAP_LIMIT) done(`patched from scrap to ${TUNE.SCRAP_LIMIT}%. The rest needs metal.`);
+                break;
+              }
+              const step = Math.min(TUNE.REPAIR_RATE, 100 - s.ship.hull, s.ship.hold.metals / TUNE.REPAIR_COST);
               s.ship.hull += step;
-              s.ship.materials -= step * TUNE.REPAIR_COST;
+              s.ship.hold.metals -= step * TUNE.REPAIR_COST;
               if (s.ship.hull >= 99.99) done("hull sound.");
-              else if (s.ship.materials < 0.01) done("out of materials; repairs stop.");
+              else if (s.ship.hold.metals < 0.01 && s.ship.hull >= TUNE.SCRAP_LIMIT) done("out of metals; repairs stop.");
               break;
             }
             case "refit":
@@ -3952,7 +4252,7 @@ input, textarea {
       change("Fuel", before.fuel, this.fuelPct, "%");
       change("Shield", before.shield, s.ship.shield, "%");
       change("Hull", before.hull, s.ship.hull, "%");
-      change("Hold", before.materials, s.ship.materials, "");
+      change("Hold", before.materials, this.stock, "");
       if (s.ship.archive > before.archive) parts.push(`Archive +${s.ship.archive - before.archive}.`);
       this.dim(parts.join(" "));
       if (worked && !s.visit.idle && idle >= 60 && s.stats.systems % 5 === 2) {
@@ -4497,8 +4797,12 @@ input, textarea {
             return `The survey is ${Math.round(100 * this.mem.found / sys.discoveries.length)}% done. There's more here; it comes slower as we go.`;
           case "repair":
             return `The Wrights could mend while we sit. Hull is at ${Math.round(s.ship.hull)}% and we have the stock.`;
-          case "mine":
-            return `There's ore at ${where} and room in the hold. Refits and repairs both eat it.`;
+          case "mine": {
+            const m = MATERIALS.find((x) => MATERIAL[x].short === jobs[0].split(" ")[2]) ?? "metals";
+            const aim = this.refitAim();
+            const why = aim && (refitCost(aim.track, s.ship.levels[aim.track]).needs[m] ?? 0) > s.ship.hold[m] ? `the ${aim.track} refit wants ${m === "carbon" ? "it" : "them"}` : `the hold is short of ${m === "carbon" ? "it" : "them"}`;
+            return `There ${m === "carbon" ? "is" : "are"} ${MATERIAL[m].name} at ${where}, and ${why}.`;
+          }
         }
       }
       const ready = Object.keys(REFITS).find((t) => this.refitState(t) === "ready");
@@ -4535,7 +4839,8 @@ input, textarea {
         ` fuel    ${gauge(this.fuelPct / 100)} ${lpad(String(Math.round(this.fuelPct)), 3)}%`,
         ` shield  ${gauge(s.ship.shield / 100)} ${lpad(String(Math.round(s.ship.shield)), 3)}%`,
         ` hull    ${gauge(s.ship.hull / 100)} ${lpad(String(Math.round(s.ship.hull)), 3)}%`,
-        ` hold    ${gauge(s.ship.materials / hold)} ${Math.round(s.ship.materials)}/${hold}`,
+        ` hold    ${gauge(this.stock / hold)} ${Math.round(this.stock)}/${hold}`,
+        ...this.holdLines(),
         ` archive ${s.ship.archive}`,
         "",
         ` engine ${level(s, "engine")} g${this.throttled ? " (throttled)" : ""} \xB7 hull grade ${level(s, "hull")}`,
@@ -4557,8 +4862,23 @@ input, textarea {
       if (s.crews.some((c) => c?.op === "refit" && c.track === track)) return "busy";
       const cost = refitCost(track, lv);
       if (s.ship.archive < cost.archive) return "archive";
-      if (s.ship.materials < cost.materials) return "materials";
+      if (MATERIALS.some((m) => s.ship.hold[m] < (cost.needs[m] ?? 0))) return "materials";
       return "ready";
+    }
+    /** What is in the hold, as lines that fit the ship's table. */
+    holdLines() {
+      const stocks = MATERIALS.filter((m) => this.state.ship.hold[m] >= 0.5).map((m) => `${MATERIAL[m].name} ${Math.round(this.state.ship.hold[m])}`);
+      const lines = [];
+      for (const item of stocks.length ? stocks : ["empty"]) {
+        const last = lines[lines.length - 1];
+        if (last !== void 0 && `${last} \xB7 ${item}`.length <= 41) lines[lines.length - 1] = `${last} \xB7 ${item}`;
+        else lines.push(`   ${item}`);
+      }
+      return lines;
+    }
+    /** "54 iso · 36 met" */
+    needsText(needs) {
+      return MATERIALS.filter((m) => needs[m]).map((m) => `${needs[m]} ${MATERIAL[m].short}`).join(" \xB7 ");
     }
     refitLines() {
       const s = this.state;
@@ -4572,9 +4892,11 @@ input, textarea {
           continue;
         }
         const cost = refitCost(track, lv);
-        const flag = state === "ready" ? "READY" : state === "busy" ? "in yard" : state === "archive" ? `archive ${cost.archive}` : `${cost.materials} mat`;
+        const short = MATERIALS.find((m) => s.ship.hold[m] < (cost.needs[m] ?? 0));
+        const lacking = short ? `short ${Math.ceil((cost.needs[short] ?? 0) - s.ship.hold[short])} ${MATERIAL[short].short}` : "";
+        const flag = state === "ready" ? "READY" : state === "busy" ? "in yard" : state === "archive" ? `archive ${cost.archive}` : lacking;
         lines.push(` ${pad(track, 8)} ${pad(`${info.levels[lv]} > ${info.levels[lv + 1]}`, 12)} ${flag}`);
-        if (state === "ready") lines.push(`          costs ${cost.materials} mat, ${cost.days} days`);
+        if (state !== "busy") lines.push(`          ${this.needsText(cost.needs)} \xB7 ${cost.days} d`);
       }
       return lines;
     }
@@ -4590,13 +4912,33 @@ input, textarea {
       if (state === "max") return this.text("That is already as good as the Wrights can make it.");
       if (state === "busy") return this.text("That refit is already in the yard.");
       if (state === "archive") return this.text(`The Wrights don't know how yet. That needs ${cost.archive} in the Archive; we have ${s.ship.archive}.`);
-      if (state === "materials") return this.text(`That needs ${cost.materials} materials; we have ${Math.round(s.ship.materials)}.`);
+      if (state === "materials") {
+        const lacking = MATERIALS.filter((m) => s.ship.hold[m] < (cost.needs[m] ?? 0)).map((m) => `${Math.ceil((cost.needs[m] ?? 0) - s.ship.hold[m])} ${MATERIAL[m].name}`);
+        return this.text(`That needs ${this.needsText(cost.needs)}. We are short ${lacking.join(" and ")}.`);
+      }
       const free = s.crews.findIndex((c) => c === null);
       if (free < 0) return this.text("No crew is free to do it. Recall one first.");
-      s.ship.materials -= cost.materials;
+      for (const m of MATERIALS) s.ship.hold[m] -= cost.needs[m] ?? 0;
       s.crews[free] = { op: "refit", body: -1, days: 0, need: cost.days, track };
       this.text(`Crew ${free + 1} to the yard: ${REFITS[track].label.toLowerCase()} refit, ${cost.days} days. We cannot burn until it is done.`);
       this.say("refit_start", { days: cost.days });
+    }
+    /** Throw stock overboard, to make room in the hold for something worth more. */
+    dump(arg) {
+      const s = this.state;
+      const [word, amount] = arg.trim().toLowerCase().split(/\s+/);
+      const m = word ? MATERIALS.find((x) => x.startsWith(word) || MATERIAL[x].short === word || MATERIAL[x].name.startsWith(word)) : void 0;
+      if (!m) {
+        this.text('Dump what? For example "dump volatiles 20", or "dump volatiles" for all of it.');
+        return;
+      }
+      const n = amount === void 0 ? s.ship.hold[m] : Math.min(s.ship.hold[m], Number(amount));
+      if (!(n > 0)) {
+        this.text(amount !== void 0 && !(Number(amount) > 0) ? "How much? Give a number, or leave it off for all of it." : `There ${m === "carbon" ? "is" : "are"} no ${MATERIAL[m].name} in the hold.`);
+        return;
+      }
+      s.ship.hold[m] -= n;
+      this.text(`${Math.round(n)} of ${MATERIAL[m].name} over the side. The hold is at ${Math.round(this.stock)} of ${level(s, "hold")}.`);
     }
     log() {
       const entries = this.state.journal.slice(-14);
@@ -4644,10 +4986,12 @@ input, textarea {
         "  ops         the work on offer here",
         "  scoop N     fuel from a giant (0 = star)",
         "  ice N       rebuild the shield",
-        "  mine N      materials for the hold",
+        "  mine N      stock for the hold",
+        "  mine N car  ...one material by name",
+        "  mine N 40   ...and only that much",
         "  survey      chart the system, slowly",
         "  scan N      deep scan: oddity or ruin",
-        "  repair      mend the hull with materials",
+        "  repair      mend the hull with metals",
         "  recall N    free a crew",
         "  stay [30]   let days pass (d w m y)",
         " away",
@@ -4662,6 +5006,9 @@ input, textarea {
         "  ask         what the Mind thinks",
         "  ship        condition, clocks, refits",
         "  refit X     start a refit",
+        "  dump X [n]  throw stock overboard",
+        " in tables: vol volatiles, met metals,",
+        "  car carbon, iso isotopes, hvy heavy",
         "  log, finds  journal and catalogue",
         "  name X      name this system"
       ]);

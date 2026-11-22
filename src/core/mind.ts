@@ -227,6 +227,16 @@ export const LINES: Record<string, string[]> = {
   signal_first: [
     'Number {n} is broadcasting. Structured, repeating, nothing a star does. Somebody is home there, or was {light} ago when that light left.',
   ],
+  hot_work: [
+    "That is hot work. Each day a crew spends at {where} costs us {cost}. I'll say when it has cost enough.",
+    'For the record: {where} takes {cost} a day from us while a crew is there. Your call, and I am counting.',
+    "It can be done. It costs {cost} for every day at {where}, and I'd want a reason.",
+  ],
+  seam_thin: [
+    'We have had the best of it. A system is a big place, but the easy part of it is not.',
+    "That seam has given what it gives freely. The rest is there; it just isn't in a hurry.",
+    'Diminishing returns. I mention it in case somewhere else has started to look better.',
+  ],
   civ_first: [
     'So we are not the only ones out here. I had assumed as much. It is different to see the lights.',
     'People. Not ours. I have had a greeting drafted for some centuries, and now none of it seems right.',
