@@ -4,7 +4,7 @@
  * `Game` knows nothing about screens. The web page and the headless tools
  * both drive it through `exec`, `status` and `chips`.
  */
-import { CIV, DAYS, DEMO, ISRU, MATERIAL, MATERIALS, REFITS, TUNE, refitCost, type GalaxyConfig, type Material, type RefitTrack } from './config.ts';
+import { CIV, DAYS, DEMO, ISRU, MATERIAL, MATERIALS, MEMORY, REFITS, TUNE, refitCost, type GalaxyConfig, type Material, type RefitTrack } from './config.ts';
 import { Galaxy, type Seen, type SysRef } from './galaxy.ts';
 import { STARS, bodyLabel, bodyRef, generateSystem, renderFeature, starLine, type Body, type Discovery, type Seam, type StarKind, type StarSystem } from './system.ts';
 import { FEATURES, FEATURE_BY_ID, RARITY_WORD, type FeatureDef } from './features.ts';
@@ -16,7 +16,7 @@ import { GUIDE, fill, speak } from './mind.ts';
 import { K, Stream, mix, strHash } from './rng.ts';
 import { MIND_NAMES } from './words.ts';
 import { capital, clock, gauge, lpad, ly, pad, span, spanWords } from './format.ts';
-import { SAVE_VERSION, freshMemory, freshState, level, type Assignment, type Memory, type Op, type SiteNote, type State } from './state.ts';
+import { SAVE_VERSION, freshMemory, freshState, level, packState, stamp, unpackState, type Assignment, type Memory, type Op, type SiteNote, type State } from './state.ts';
 
 /** echo: the player's own line. pre: fixed-width block. mind: the ship speaking. */
 export type OutKind = 'echo' | 'text' | 'pre' | 'mind' | 'head' | 'dim' | 'good' | 'alert' | 'map';
@@ -202,16 +202,22 @@ export class Game {
   }
 
   static load(text: string, cfg: GalaxyConfig = DEMO): Game {
-    const state = JSON.parse(text) as State;
+    const state = unpackState(text);
     if (typeof state.v === 'number' && state.v < SAVE_VERSION) throw new Error('a save from an older version');
     if (state.v !== SAVE_VERSION || typeof state.seed !== 'number' || !state.ship || !state.mem) throw new Error('not a save from this game');
     const game = new Game(state, cfg);
     if (!game.galaxy.ref(state.at)) throw new Error('save points at a system that does not exist');
+    // Added after some voyages had begun: the year by which nothing of a people will be left.
+    for (const [id, m] of Object.entries(state.met)) {
+      if (m.until !== undefined) continue;
+      const c = game.cultures.byId(id);
+      m.until = c ? Math.ceil(c.born + c.life + CIV.RUIN_MAX) : m.t;
+    }
     return game;
   }
 
   save(): string {
-    return JSON.stringify(this.state);
+    return packState(this.state);
   }
 
   // ---- small accessors ----------------------------------------------------
@@ -306,7 +312,7 @@ export class Game {
     this.say(pool, vars);
   }
   private note(text: string) {
-    this.state.journal.push({ g: this.state.tGal, text });
+    this.state.journal.push({ g: stamp(this.state.tGal), text });
     if (this.state.journal.length > 300) this.state.journal.splice(0, 100);
   }
 
@@ -564,7 +570,9 @@ export class Game {
     const s = this.state;
     const known = s.met[c.id];
     if (!known) {
-      s.met[c.id] = { title: c.title, home: c.home.id, t: s.tGal, how };
+      // Nothing of theirs outlasts this: the longest any ruin stands after its makers.
+      s.met[c.id] = { title: c.title, home: c.home.id, t: stamp(s.tGal), how, until: Math.ceil(c.born + c.life + CIV.RUIN_MAX) };
+      s.stats.peoples++;
       return true;
     }
     if (how === 'met' && known.how === 'ruins') {
@@ -642,7 +650,7 @@ export class Game {
       let weathered = false;
       for (const note of before) {
         const site = now.sites.find((x) => x.culture.id === note.id);
-        const title = s.met[note.id]?.title;
+        const title = note.title ?? s.met[note.id]?.title;
         if (!isLiving(note.phase)) {
           weathered ||= !site;
         } else if (!title) {
@@ -676,9 +684,11 @@ export class Game {
         if (!mem.swept) continue;
         if (!mem.sites.includes(site.culture.id)) this.noticeRuin(site);
       }
-      notes.push({ id: site.culture.id, phase: site.phase });
+      notes.push(site.alive ? { id: site.culture.id, phase: site.phase, title: site.culture.title } : { id: site.culture.id, phase: site.phase });
     }
     mem.seen = notes;
+    // Ruins that have weathered away need no record of having been read.
+    mem.sites = mem.sites.filter((id) => now.sites.some((x) => x.culture.id === id));
   }
 
   // ---- looking, continued -------------------------------------------------
@@ -803,8 +813,31 @@ export class Game {
 
   /** What a seam gives a day now: less the more has been taken from it, by us or by anyone who lives here. */
   private seamRate(b: Body, seam: Seam): number {
-    const taken = (this.mem.taken[`${b.n}:${seam.material}`] ?? 0) + this.workedByOthers(b, seam);
+    const taken = (this.mem.taken[`${b.n}:${seam.material}`] ?? 0) * this.recovery(this.mem) + this.workedByOthers(b, seam);
     return this.freshRate(b, seam) * (ISRU.FLOOR + (1 - ISRU.FLOOR) * Math.exp(-taken / seam.size));
+  }
+
+  /** How much of what was taken from a system's seams still counts, given how long ago we were last there. */
+  private recovery(mem: Memory): number {
+    return Math.pow(0.5, Math.max(0, this.state.tGal - mem.last) / ISRU.RECOVER);
+  }
+
+  /**
+   * Go through the save for what can be forgotten: seams that have recovered,
+   * and peoples of whom nothing is left once the list of them has grown long.
+   * This is what keeps a save small over a very long voyage.
+   */
+  private tidy() {
+    const s = this.state;
+    for (const mem of Object.values(s.mem)) {
+      const still = this.recovery(mem);
+      for (const key of Object.keys(mem.taken)) if (mem.taken[key] * still < 1) delete mem.taken[key];
+    }
+    const gone = Object.entries(s.met).filter(([, m]) => s.tGal > m.until).sort((a, b) => a[1].until - b[1].until);
+    for (const [id] of gone.slice(0, Math.max(0, Object.keys(s.met).length - MEMORY.PEOPLES))) delete s.met[id];
+    // The Mind's note of which stars it has already asked to visit: only the recent ones matter.
+    const asked = s.mind.said.filter((x) => x.startsWith('fancy:'));
+    if (asked.length > 40) s.mind.said = s.mind.said.filter((x) => !asked.slice(0, asked.length - 40).includes(x));
   }
 
   /** Every seam a crew could be put on: on a body the survey has charted, that is nobody's home. */
@@ -1412,8 +1445,9 @@ export class Game {
     const s = this.state;
     const here = this.here.ref;
     const known = new Map<string, Culture>();
-    for (const id of Object.keys(s.met)) {
-      const c = id.startsWith('R') ? this.cultures.byId(id) : null;
+    for (const [id, m] of Object.entries(s.met)) {
+      // Long gone: not worth looking up, however many of them there have been.
+      const c = id.startsWith('R') && s.tGal <= m.until ? this.cultures.byId(id) : null;
       if (c) known.set(id, c);
     }
     for (const { site } of this.cultures.signals(here.x, here.y, s.tGal, HEARING)) {
@@ -1423,7 +1457,10 @@ export class Game {
     for (const culture of known.values()) {
       // A hull is set by their outermost systems, wherever those are, so look at everything they could hold.
       const reach = culture.reach!.radius;
-      if (Math.hypot(culture.home.x - here.x, culture.home.y - here.y) - reach > within) continue;
+      const away = Math.hypot(culture.home.x - here.x, culture.home.y - here.y);
+      if (away - reach > within) continue;
+      // By the light now reaching us they have already ended: they hold nothing.
+      if (s.tGal - Math.max(0, away - reach) >= culture.born + culture.life) continue;
       const points: Point[] = [];
       for (const { ref } of this.galaxy.within(culture.home.x, culture.home.y, reach)) {
         const light = Math.hypot(ref.x - here.x, ref.y - here.y);
@@ -1867,11 +1904,18 @@ export class Game {
     const gap = known ? s.tGal - known.last : 0;
     if (known) {
       known.visits++;
-      known.last = s.tGal;
+      // What we took here has been recovering since: settle that before the visit is restamped.
+      const still = this.recovery(known);
+      for (const key of Object.keys(known.taken)) {
+        known.taken[key] = Math.round(known.taken[key] * still * 10) / 10;
+        if (known.taken[key] < 1) delete known.taken[key];
+      }
+      known.last = stamp(s.tGal);
     } else {
-      s.mem[sys.ref.id] = freshMemory(s.tGal);
+      s.mem[sys.ref.id] = freshMemory(stamp(s.tGal));
       s.stats.systems++;
     }
+    if (s.stats.jumps % MEMORY.TIDY === 0) this.tidy();
     this.note(`${fromName} to ${this.nameOf(sys.ref.id)}, ${ly(leg.dist)} ly.`);
 
     this.dim(`— ${span(leg.ship)} aboard · ${span(leg.galaxy)} outside · ${ly(leg.dist)} ly —`);
@@ -2113,12 +2157,12 @@ export class Game {
     const stars = (Object.keys(STARS) as (keyof typeof STARS)[]).filter((k) => s.seen[`star:${k}`]);
     lines.push(` ${pad('stars', 9)} ${stars.length} of ${Object.keys(STARS).length} kinds`);
     const peoples = Object.values(s.met);
-    lines.push(` ${pad('peoples', 9)} ${peoples.length} known · ${s.seen.ruin ?? 0} ruins read`);
+    lines.push(` ${pad('peoples', 9)} ${s.stats.peoples} known · ${s.seen.ruin ?? 0} ruins read`);
     for (const m of peoples.slice(-12)) {
       lines.push(`   ${pad(m.title.replace(/^the /, ''), 21)} ${pad(m.how, 5)} ${lpad(clock(m.t), 9)}`);
     }
     this.pre(lines);
-    if (peoples.length) this.dim('Peoples: how we know them, and the year outside when we first did.');
+    if (peoples.length) this.dim('Peoples: the latest we have known, how we know them, and the year outside when we first did.');
   }
 
   private rename(arg: string) {

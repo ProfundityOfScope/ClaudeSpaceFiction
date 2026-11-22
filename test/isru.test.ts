@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEMO, ISRU, MATERIALS, REFITS, refitCost, type Material, type RefitTrack } from '../src/core/config.ts';
+import { DEMO, ISRU, MATERIALS, MEMORY, REFITS, refitCost, type Material, type RefitTrack } from '../src/core/config.ts';
 import { Galaxy, type SysRef } from '../src/core/galaxy.ts';
 import { STARS, generateSystem, type Body, type Seam, type StarSystem } from '../src/core/system.ts';
 import { Cultures } from '../src/core/civs.ts';
@@ -124,7 +124,57 @@ test('a seam thins as it is worked, never to nothing, and stays as thin as it wa
   assert.equal(inside(Game.load(g.save())).seamRate(b, seam), late);
   visit(g, start);
   visit(g, target.ref);
-  assert.ok(Math.abs(inside(g).seamRate(b, seam) - late) < 1e-9);
+  assert.ok(Math.abs(inside(g).seamRate(b, seam) / late - 1) < 1e-3, 'a lifetime away is nothing to a seam');
+});
+
+test('what was taken from a seam comes back over a very long time, and is then forgotten', () => {
+  const g = Game.fresh();
+  const target = near.find((s) => quiet(cultures.system(s.ref)) && cultures.system(s.ref).bodies.some((b) => !b.hot && b.seams.some((x) => x.material === 'metals' && x.grade >= 2)))!;
+  const sys = cultures.system(target.ref);
+  // A year from which nobody is at the system for a good while, so that only our own digging is being measured.
+  const emptyFrom = (from: number) => {
+    let year = from;
+    while ([0, 100, 200, 300, 400, 500].some((later) => cultures.presence(sys, year + later).sites.length)) year += 500;
+    return year;
+  };
+  visit(g, target.ref);
+  const b = g.here.bodies.find((x) => !x.hot && x.seams.some((s) => s.material === 'metals' && s.grade >= 2))!;
+  const seam = b.seams.find((x) => x.material === 'metals')!;
+  const fresh = inside(g).freshRate(b, seam);
+  const key = `${b.n}:metals`;
+  g.state.ship.levels.hold = 5;
+  for (let i = 0; i < 4; i++) {
+    g.state.ship.hold.metals = 0;
+    if (!g.state.crews.some((c) => c?.op === 'mine')) g.exec(`mine ${b.n} metals`);
+    g.exec('stay 3000');
+  }
+  const taken = g.state.mem[target.ref.id].taken[key];
+  const thin = inside(g).seamRate(b, seam);
+  assert.ok(taken > 100 && thin < 0.9 * fresh, `worked for decades: ${taken.toFixed(0)} taken, ${(thin / fresh).toFixed(2)} of fresh`);
+
+  // Two half-lives on, a quarter of it still counts, and the seam gives more than it did.
+  visit(g, start);
+  g.state.tGal = emptyFrom(g.state.tGal + 2 * ISRU.RECOVER);
+  const waited = g.state.tGal;
+  visit(g, target.ref);
+  assert.equal(g.people().sites.length, 0);
+  const left = g.state.mem[target.ref.id].taken[key];
+  const expected = Math.pow(0.5, (g.state.tGal - waited + 2 * ISRU.RECOVER) / ISRU.RECOVER);
+  assert.ok(Math.abs(left / taken - expected) < 0.02 && left / taken < 0.3, `${(left / taken).toFixed(3)} of it left`);
+  const better = inside(g).seamRate(b, seam);
+  assert.ok(better > thin && better < fresh, `${(thin / fresh).toFixed(2)} of fresh, then ${(better / fresh).toFixed(2)}`);
+
+  // Long enough, and there is nothing left to remember, whether or not we ever go back.
+  visit(g, start);
+  g.state.tGal += 40 * ISRU.RECOVER;
+  g.state.stats.jumps = MEMORY.TIDY - 1;
+  visit(g, near.find((s) => s.ref.id !== target.ref.id)!.ref);
+  assert.deepEqual(g.state.mem[target.ref.id].taken, {});
+  assert.equal('taken' in JSON.parse(g.save()).mem[target.ref.id], false, 'and the save no longer carries it');
+  g.state.tGal = emptyFrom(g.state.tGal);
+  visit(g, target.ref);
+  assert.equal(g.people().sites.length, 0);
+  assert.equal(inside(g).seamRate(b, seam), fresh, 'the seam is as it was before anyone came');
 });
 
 test('people who live in a system have already thinned its seams', () => {

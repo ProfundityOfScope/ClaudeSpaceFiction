@@ -2,9 +2,11 @@
  * Every tunable number lives here.
  *
  * Units throughout: light-years, years, c = 1. Gas density is atoms per cm^3.
- * The galaxy is a flat disc. To make it bigger, raise `radius` and
- * `totalSystems`; nothing else needs to change, because systems are generated
- * per cell on demand and never enumerated.
+ * The galaxy is a flat disc. Systems are generated per cell on demand and
+ * never enumerated, so `radius` and `totalSystems` can be raised a long way:
+ * to a few hundred million systems as things stand. A real galaxy's hundred
+ * billion would crowd a flat disc beyond use, and needs the changes listed
+ * under "galaxy version 2" in ROADMAP.md.
  */
 
 /** A brightness tier. Dim stars are common and only seen nearby; bright ones are rare and seen far. */
@@ -156,6 +158,12 @@ export const ISRU = {
    */
   FLOOR: 0.15,
   SIZE: { volatiles: [1500, 3500], metals: [600, 1400], carbon: [350, 900], isotopes: [3000, 6000], heavy: [150, 450] },
+  /**
+   * Nothing the navigator does lasts for ever. Impacts and collisions keep
+   * turning fresh material up, so what was taken from a seam counts for half
+   * as much after this many years, and is forgotten once it is under a unit.
+   */
+  RECOVER: 1e6,
   /** A seam is called thin once it gives less than this share of what it did fresh. */
   THIN: 0.6,
   /** Hot work, percent a day for each crew at it: heat wears the hull, radiation the shield. */
@@ -165,6 +173,17 @@ export const ISRU = {
   HOT_RECALL: 45,
   /** How much of each seam a culture in the system has already had, in seam sizes, by its phase. An outpost has had half as much. */
   WORKED: { founding: 0.1, rising: 0.5, height: 1.0, decline: 1.3, ruins: 1.3, 'old ruins': 1.3 },
+} as const;
+
+/**
+ * Limits on what a voyage remembers, so that a save stays small however long
+ * the voyage runs.
+ */
+export const MEMORY = {
+  /** Cultures kept in the list of those we know of. Beyond this, the longest-vanished are dropped. */
+  PEOPLES: 300,
+  /** How often, in jumps, the save is gone through for things that can be forgotten. */
+  TIDY: 25,
 } as const;
 
 /**

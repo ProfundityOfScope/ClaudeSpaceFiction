@@ -37,6 +37,8 @@ export interface SiteNote {
   /** The culture's id. */
   id: string;
   phase: Phase;
+  /** Their name, kept here so that it is still to hand when they are long gone and dropped from the list of those we know. */
+  title?: string;
 }
 
 /** A culture we know of. */
@@ -48,6 +50,8 @@ export interface Met {
   /** Year outside when we first knew of them, and whether we met them living or read them from ruins. */
   t: number;
   how: 'met' | 'ruins';
+  /** Year by which nothing of them will be left. After it they can be forgotten. */
+  until: number;
 }
 
 /** What we remember about a system we have been to. */
@@ -68,7 +72,10 @@ export interface Memory {
   sites: string[];
   /** Who was here, and in what state, when we last looked. */
   seen: SiteNote[];
-  /** What we have mined here, by "body:material", so that a seam stays as thin as we left it. */
+  /**
+   * What we have mined here, by "body:material", as it stood at `last`: a seam
+   * stays as thin as we left it, and then recovers over a very long time.
+   */
   taken: Record<string, number>;
 }
 
@@ -130,7 +137,7 @@ export interface State {
   /** Ids from the last chart, so "plot 3" means something. */
   chart: string[];
   plot?: string;
-  stats: { jumps: number; ly: number; systems: number; finds: number };
+  stats: { jumps: number; ly: number; systems: number; finds: number; peoples: number };
   /** Name of the system where the navigator woke. */
   home: string;
   /** Step of the first-visit walkthrough. Absent once it is over, and in saves from before it existed. */
@@ -216,8 +223,54 @@ export function freshState(galaxy: Galaxy, seed: number): State {
     journal: [{ g: 0, text: `Woken at ${sys.name}.` }],
     mind,
     chart: [],
-    stats: { jumps: 0, ly: 0, systems: 1, finds: 0 },
+    stats: { jumps: 0, ly: 0, systems: 1, finds: 0, peoples: 0 },
     home: sys.name,
     guide: 0,
   };
+}
+
+// ---- saving ----------------------------------------------------------------
+//
+// A long voyage remembers thousands of systems, and the save is written after
+// every command, so each remembered system is stored as leanly as it can be:
+// anything that still has the value a fresh memory would have is left out, and
+// put back on loading. Nothing is rounded or lost.
+
+/** A date as it is written into a memory: to the hundredth of a year, which is closer than anything is ever told. */
+export const stamp = (year: number) => Math.round(year * 100) / 100;
+
+const BLANK = freshMemory(0);
+
+function packMemory(m: Memory): Record<string, unknown> {
+  const out: Record<string, unknown> = { first: m.first };
+  if (m.last !== m.first) out.last = m.last;
+  if (m.name !== undefined) out.name = m.name;
+  if (m.visits !== BLANK.visits) out.visits = m.visits;
+  if (m.swept) out.swept = true;
+  if (m.effort) out.effort = m.effort;
+  if (m.found) out.found = m.found;
+  if (m.scanned.length) out.scanned = m.scanned;
+  if (m.sites.length) out.sites = m.sites;
+  if (m.seen.length) out.seen = m.seen;
+  if (Object.keys(m.taken).length) out.taken = m.taken;
+  return out;
+}
+
+/** The state as text. */
+export function packState(state: State): string {
+  const mem: Record<string, unknown> = {};
+  for (const [id, m] of Object.entries(state.mem)) mem[id] = packMemory(m);
+  return JSON.stringify({ ...state, mem });
+}
+
+/** And back again. A save written before memories were stored leanly reads the same way. */
+export function unpackState(text: string): State {
+  const state = JSON.parse(text) as State;
+  if (state && typeof state === 'object' && state.mem) {
+    for (const [id, raw] of Object.entries(state.mem as Record<string, Partial<Memory> & { first: number }>)) {
+      state.mem[id] = { ...freshMemory(raw.first), ...raw, last: raw.last ?? raw.first };
+    }
+  }
+  if (state?.stats && state.stats.peoples === undefined) state.stats.peoples = Object.keys(state.met ?? {}).length;
+  return state;
 }

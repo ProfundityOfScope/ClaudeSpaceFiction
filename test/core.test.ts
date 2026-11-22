@@ -75,6 +75,36 @@ test('a voyage survives saving and loading', () => {
   assert.throws(() => Game.load('{"v":2}'));
 });
 
+test('a remembered system is stored leanly, and nothing is lost by it', () => {
+  const g = Game.fresh();
+  for (const c of ['sweep', 'survey', 'stay 30', 'chart close', 'plot 1', 'burn', 'chart close', 'plot 2', 'burn', 'sweep']) {
+    Object.assign(g.state.ship, { fuel: 1e6, shield: 100, hull: 100 });
+    g.exec(c);
+  }
+  assert.equal(g.state.stats.jumps, 2);
+  const text = g.save();
+  const packed = JSON.parse(text) as { mem: Record<string, Record<string, unknown>> };
+  assert.equal(Object.keys(packed.mem).length, Object.keys(g.state.mem).length);
+  for (const [id, m] of Object.entries(packed.mem)) {
+    for (const [key, value] of Object.entries(m)) {
+      const empty = Array.isArray(value) ? value.length === 0 : typeof value === 'object' && value !== null && Object.keys(value).length === 0;
+      assert.ok(!empty && value !== false && (value !== 0 || key === 'first'), `${id}: ${key} is stored though it says nothing`);
+    }
+    assert.notEqual(m.last, m.first, `${id}: a single visit needs one date`);
+    assert.notEqual(m.visits, 1);
+  }
+  // A system only passed through is a single date.
+  assert.ok(Object.values(packed.mem).some((m) => Object.keys(m).join() === 'first'));
+  // Loading puts back everything that was left out: the state is the same, and so is the next save.
+  const plain = (x: unknown) => JSON.parse(JSON.stringify(x));
+  assert.deepEqual(plain(Game.load(text).state), plain(g.state));
+  assert.equal(Game.load(text).save(), text);
+  // The fuller form, with every field written out, is a good deal longer and loads to the same thing.
+  const full = JSON.stringify(g.state);
+  assert.ok(JSON.stringify(packed.mem).length < 0.6 * JSON.stringify(g.state.mem).length);
+  assert.equal(Game.load(full).save(), text);
+});
+
 test('surveying finds everything, and work fills what it should', () => {
   const g = Game.fresh();
   g.exec('sweep');

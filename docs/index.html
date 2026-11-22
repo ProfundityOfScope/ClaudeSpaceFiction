@@ -307,6 +307,12 @@ input, textarea {
      */
     FLOOR: 0.15,
     SIZE: { volatiles: [1500, 3500], metals: [600, 1400], carbon: [350, 900], isotopes: [3e3, 6e3], heavy: [150, 450] },
+    /**
+     * Nothing the navigator does lasts for ever. Impacts and collisions keep
+     * turning fresh material up, so what was taken from a seam counts for half
+     * as much after this many years, and is forgotten once it is under a unit.
+     */
+    RECOVER: 1e6,
     /** A seam is called thin once it gives less than this share of what it did fresh. */
     THIN: 0.6,
     /** Hot work, percent a day for each crew at it: heat wears the hull, radiation the shield. */
@@ -316,6 +322,12 @@ input, textarea {
     HOT_RECALL: 45,
     /** How much of each seam a culture in the system has already had, in seam sizes, by its phase. An outpost has had half as much. */
     WORKED: { founding: 0.1, rising: 0.5, height: 1, decline: 1.3, ruins: 1.3, "old ruins": 1.3 }
+  };
+  var MEMORY = {
+    /** Cultures kept in the list of those we know of. Beyond this, the longest-vanished are dropped. */
+    PEOPLES: 300,
+    /** How often, in jumps, the save is gone through for things that can be forgotten. */
+    TIDY: 25
   };
   var CIV = {
     ERA: 8e3,
@@ -2894,7 +2906,12 @@ input, textarea {
     if (years < 10) return `${years.toFixed(1)} yr`;
     if (years < 1e3) return `${Math.round(years)} yr`;
     if (years < 1e6) return `${(years / 1e3).toFixed(years < 1e4 ? 2 : 1)} kyr`;
-    return `${(years / 1e6).toFixed(2)} Myr`;
+    return aeons(years);
+  }
+  function aeons(years) {
+    if (years < 1e8) return `${(years / 1e6).toFixed(2)} Myr`;
+    if (years < 99995e4) return `${(years / 1e6).toFixed(1)} Myr`;
+    return `${(years / 1e9).toFixed(2)} Gyr`;
   }
   function spanWords(years) {
     const days = years * DAYS;
@@ -2903,7 +2920,10 @@ input, textarea {
     if (years < 2) return `${Math.round(years * 12)} months`;
     if (years < 10) return `${years.toFixed(1)} years`;
     if (years < 1e3) return `${Math.round(years)} years`;
-    return `${Math.round(years).toLocaleString("en-US")} years`;
+    if (years < 1e5) return `${Math.round(years).toLocaleString("en-US")} years`;
+    if (years < 999500) return `${Math.round(years / 1e3)} thousand years`;
+    if (years < 9995e5) return `${Number((years / 1e6).toPrecision(3))} million years`;
+    return `${Number((years / 1e9).toPrecision(3))} billion years`;
   }
   function ly(d) {
     if (d < 10) return d.toFixed(1);
@@ -2921,7 +2941,7 @@ input, textarea {
     if (years < 100) return `${years.toFixed(1)} yr`;
     if (years < 1e4) return `${Math.round(years).toLocaleString("en-US")} yr`;
     if (years < 1e6) return `${(years / 1e3).toFixed(1)} kyr`;
-    return `${(years / 1e6).toFixed(2)} Myr`;
+    return aeons(years);
   }
 
   // src/core/state.ts
@@ -2998,10 +3018,41 @@ input, textarea {
       journal: [{ g: 0, text: `Woken at ${sys.name}.` }],
       mind,
       chart: [],
-      stats: { jumps: 0, ly: 0, systems: 1, finds: 0 },
+      stats: { jumps: 0, ly: 0, systems: 1, finds: 0, peoples: 0 },
       home: sys.name,
       guide: 0
     };
+  }
+  var stamp = (year) => Math.round(year * 100) / 100;
+  var BLANK = freshMemory(0);
+  function packMemory(m) {
+    const out = { first: m.first };
+    if (m.last !== m.first) out.last = m.last;
+    if (m.name !== void 0) out.name = m.name;
+    if (m.visits !== BLANK.visits) out.visits = m.visits;
+    if (m.swept) out.swept = true;
+    if (m.effort) out.effort = m.effort;
+    if (m.found) out.found = m.found;
+    if (m.scanned.length) out.scanned = m.scanned;
+    if (m.sites.length) out.sites = m.sites;
+    if (m.seen.length) out.seen = m.seen;
+    if (Object.keys(m.taken).length) out.taken = m.taken;
+    return out;
+  }
+  function packState(state) {
+    const mem = {};
+    for (const [id, m] of Object.entries(state.mem)) mem[id] = packMemory(m);
+    return JSON.stringify({ ...state, mem });
+  }
+  function unpackState(text) {
+    const state = JSON.parse(text);
+    if (state && typeof state === "object" && state.mem) {
+      for (const [id, raw] of Object.entries(state.mem)) {
+        state.mem[id] = { ...freshMemory(raw.first), ...raw, last: raw.last ?? raw.first };
+      }
+    }
+    if (state?.stats && state.stats.peoples === void 0) state.stats.peoples = Object.keys(state.met ?? {}).length;
+    return state;
   }
 
   // src/core/game.ts
@@ -3158,15 +3209,20 @@ input, textarea {
       return new _Game(freshState(galaxy, seed), cfg);
     }
     static load(text, cfg = DEMO) {
-      const state = JSON.parse(text);
+      const state = unpackState(text);
       if (typeof state.v === "number" && state.v < SAVE_VERSION) throw new Error("a save from an older version");
       if (state.v !== SAVE_VERSION || typeof state.seed !== "number" || !state.ship || !state.mem) throw new Error("not a save from this game");
       const game2 = new _Game(state, cfg);
       if (!game2.galaxy.ref(state.at)) throw new Error("save points at a system that does not exist");
+      for (const [id, m] of Object.entries(state.met)) {
+        if (m.until !== void 0) continue;
+        const c = game2.cultures.byId(id);
+        m.until = c ? Math.ceil(c.born + c.life + CIV.RUIN_MAX) : m.t;
+      }
       return game2;
     }
     save() {
-      return JSON.stringify(this.state);
+      return packState(this.state);
     }
     // ---- small accessors ----------------------------------------------------
     systemAt(ref) {
@@ -3246,7 +3302,7 @@ input, textarea {
       this.say(pool, vars);
     }
     note(text) {
-      this.state.journal.push({ g: this.state.tGal, text });
+      this.state.journal.push({ g: stamp(this.state.tGal), text });
       if (this.state.journal.length > 300) this.state.journal.splice(0, 100);
     }
     // ---- the front door -----------------------------------------------------
@@ -3529,7 +3585,8 @@ input, textarea {
       const s = this.state;
       const known = s.met[c.id];
       if (!known) {
-        s.met[c.id] = { title: c.title, home: c.home.id, t: s.tGal, how };
+        s.met[c.id] = { title: c.title, home: c.home.id, t: stamp(s.tGal), how, until: Math.ceil(c.born + c.life + CIV.RUIN_MAX) };
+        s.stats.peoples++;
         return true;
       }
       if (how === "met" && known.how === "ruins") {
@@ -3602,7 +3659,7 @@ input, textarea {
         let weathered = false;
         for (const note2 of before) {
           const site = now.sites.find((x) => x.culture.id === note2.id);
-          const title = s.met[note2.id]?.title;
+          const title = note2.title ?? s.met[note2.id]?.title;
           if (!isLiving(note2.phase)) {
             weathered || (weathered = !site);
           } else if (!title) {
@@ -3635,9 +3692,10 @@ input, textarea {
           if (!mem.swept) continue;
           if (!mem.sites.includes(site.culture.id)) this.noticeRuin(site);
         }
-        notes.push({ id: site.culture.id, phase: site.phase });
+        notes.push(site.alive ? { id: site.culture.id, phase: site.phase, title: site.culture.title } : { id: site.culture.id, phase: site.phase });
       }
       mem.seen = notes;
+      mem.sites = mem.sites.filter((id) => now.sites.some((x) => x.culture.id === id));
     }
     // ---- looking, continued -------------------------------------------------
     look() {
@@ -3748,8 +3806,28 @@ input, textarea {
     }
     /** What a seam gives a day now: less the more has been taken from it, by us or by anyone who lives here. */
     seamRate(b, seam) {
-      const taken = (this.mem.taken[`${b.n}:${seam.material}`] ?? 0) + this.workedByOthers(b, seam);
+      const taken = (this.mem.taken[`${b.n}:${seam.material}`] ?? 0) * this.recovery(this.mem) + this.workedByOthers(b, seam);
       return this.freshRate(b, seam) * (ISRU.FLOOR + (1 - ISRU.FLOOR) * Math.exp(-taken / seam.size));
+    }
+    /** How much of what was taken from a system's seams still counts, given how long ago we were last there. */
+    recovery(mem) {
+      return Math.pow(0.5, Math.max(0, this.state.tGal - mem.last) / ISRU.RECOVER);
+    }
+    /**
+     * Go through the save for what can be forgotten: seams that have recovered,
+     * and peoples of whom nothing is left once the list of them has grown long.
+     * This is what keeps a save small over a very long voyage.
+     */
+    tidy() {
+      const s = this.state;
+      for (const mem of Object.values(s.mem)) {
+        const still = this.recovery(mem);
+        for (const key of Object.keys(mem.taken)) if (mem.taken[key] * still < 1) delete mem.taken[key];
+      }
+      const gone = Object.entries(s.met).filter(([, m]) => s.tGal > m.until).sort((a, b) => a[1].until - b[1].until);
+      for (const [id] of gone.slice(0, Math.max(0, Object.keys(s.met).length - MEMORY.PEOPLES))) delete s.met[id];
+      const asked = s.mind.said.filter((x) => x.startsWith("fancy:"));
+      if (asked.length > 40) s.mind.said = s.mind.said.filter((x) => !asked.slice(0, asked.length - 40).includes(x));
     }
     /** Every seam a crew could be put on: on a body the survey has charted, that is nobody's home. */
     openSeams() {
@@ -3987,7 +4065,7 @@ input, textarea {
     reveal(d, day, charted) {
       const sys = this.here;
       const s = this.state;
-      const stamp = `Day ${day}. `;
+      const stamp2 = `Day ${day}. `;
       if (d.type === "body") {
         const b = sys.bodies[d.body];
         const worth = [];
@@ -4005,7 +4083,7 @@ input, textarea {
       if (def.hint) {
         const credit2 = Math.max(1, Math.round(base * TUNE.HINT_SHARE));
         s.ship.archive += credit2;
-        this.out.push({ k: "alert", s: `${stamp}${renderFeature(sys, d.body, def.hint, def.id)} (+${credit2})` });
+        this.out.push({ k: "alert", s: `${stamp2}${renderFeature(sys, d.body, def.hint, def.id)} (+${credit2})` });
         this.dim(`"scan ${d.body}" would settle it, in about ${TUNE.SCAN_DAYS[def.rarity]} days.`);
         if (!s.visit.hinted) {
           s.visit.hinted = true;
@@ -4018,11 +4096,11 @@ input, textarea {
       s.ship.archive += credit;
       s.stats.finds++;
       if (before === 0 || def.rarity === 3) {
-        this.text(`${stamp}${renderFeature(sys, d.body, def.text, def.id)} (+${credit}${before === 0 ? ", first logged" : ""})`);
+        this.text(`${stamp2}${renderFeature(sys, d.body, def.text, def.id)} (+${credit}${before === 0 ? ", first logged" : ""})`);
       } else if (def.rarity === 2) {
-        this.text(`${stamp}${capital(def.title)} again, at ${bodyRef(sys, d.body)}. The ${ordinal(before + 1)} in the Archive. (+${credit})`);
+        this.text(`${stamp2}${capital(def.title)} again, at ${bodyRef(sys, d.body)}. The ${ordinal(before + 1)} in the Archive. (+${credit})`);
       } else {
-        this.text(`${stamp}${capital(def.title)} again, at ${bodyRef(sys, d.body)}. (+${credit})`);
+        this.text(`${stamp2}${capital(def.title)} again, at ${bodyRef(sys, d.body)}. (+${credit})`);
       }
       if (def.rarity >= 2) {
         this.note(`${capital(def.title)} at ${this.nameOf(sys.ref.id)}.`);
@@ -4323,8 +4401,8 @@ input, textarea {
       const s = this.state;
       const here = this.here.ref;
       const known = /* @__PURE__ */ new Map();
-      for (const id of Object.keys(s.met)) {
-        const c = id.startsWith("R") ? this.cultures.byId(id) : null;
+      for (const [id, m] of Object.entries(s.met)) {
+        const c = id.startsWith("R") && s.tGal <= m.until ? this.cultures.byId(id) : null;
         if (c) known.set(id, c);
       }
       for (const { site } of this.cultures.signals(here.x, here.y, s.tGal, HEARING)) {
@@ -4333,7 +4411,9 @@ input, textarea {
       const out = [];
       for (const culture of known.values()) {
         const reach = culture.reach.radius;
-        if (Math.hypot(culture.home.x - here.x, culture.home.y - here.y) - reach > within) continue;
+        const away = Math.hypot(culture.home.x - here.x, culture.home.y - here.y);
+        if (away - reach > within) continue;
+        if (s.tGal - Math.max(0, away - reach) >= culture.born + culture.life) continue;
         const points = [];
         for (const { ref } of this.galaxy.within(culture.home.x, culture.home.y, reach)) {
           const light = Math.hypot(ref.x - here.x, ref.y - here.y);
@@ -4727,11 +4807,17 @@ input, textarea {
       const gap = known ? s.tGal - known.last : 0;
       if (known) {
         known.visits++;
-        known.last = s.tGal;
+        const still = this.recovery(known);
+        for (const key of Object.keys(known.taken)) {
+          known.taken[key] = Math.round(known.taken[key] * still * 10) / 10;
+          if (known.taken[key] < 1) delete known.taken[key];
+        }
+        known.last = stamp(s.tGal);
       } else {
-        s.mem[sys.ref.id] = freshMemory(s.tGal);
+        s.mem[sys.ref.id] = freshMemory(stamp(s.tGal));
         s.stats.systems++;
       }
+      if (s.stats.jumps % MEMORY.TIDY === 0) this.tidy();
       this.note(`${fromName} to ${this.nameOf(sys.ref.id)}, ${ly(leg.dist)} ly.`);
       this.dim(`\u2014 ${span(leg.ship)} aboard \xB7 ${span(leg.galaxy)} outside \xB7 ${ly(leg.dist)} ly \u2014`);
       this.heading();
@@ -4957,12 +5043,12 @@ input, textarea {
       const stars = Object.keys(STARS).filter((k) => s.seen[`star:${k}`]);
       lines.push(` ${pad("stars", 9)} ${stars.length} of ${Object.keys(STARS).length} kinds`);
       const peoples = Object.values(s.met);
-      lines.push(` ${pad("peoples", 9)} ${peoples.length} known \xB7 ${s.seen.ruin ?? 0} ruins read`);
+      lines.push(` ${pad("peoples", 9)} ${s.stats.peoples} known \xB7 ${s.seen.ruin ?? 0} ruins read`);
       for (const m of peoples.slice(-12)) {
         lines.push(`   ${pad(m.title.replace(/^the /, ""), 21)} ${pad(m.how, 5)} ${lpad(clock(m.t), 9)}`);
       }
       this.pre(lines);
-      if (peoples.length) this.dim("Peoples: how we know them, and the year outside when we first did.");
+      if (peoples.length) this.dim("Peoples: the latest we have known, how we know them, and the year outside when we first did.");
     }
     rename(arg) {
       const name = arg.trim().replace(/[^\w' -]/g, "").slice(0, 16);

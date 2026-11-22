@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CIV, DEMO } from '../src/core/config.ts';
+import { CIV, DEMO, MEMORY } from '../src/core/config.ts';
 import { Galaxy, type SysRef } from '../src/core/galaxy.ts';
 import { Cultures, frontier, isLiving, phaseOf, type Culture, type Phase } from '../src/core/civs.ts';
 import { Game } from '../src/core/game.ts';
@@ -282,4 +282,66 @@ test('space somebody holds is drawn as a hull round their systems, once we know 
     assert.ok(theirs > 0);
     if (command === 'chart far') assert.ok(map.held.includes('0') && map.held.includes('1') && map.held.includes('2'), 'outside, inside and edge all show');
   }
+});
+
+test('peoples long gone are forgotten once the list is long, and are still named where they lived', () => {
+  // The date kept with each of them is safe: no ruin outlasts it.
+  for (const c of sample()) assert.ok(c.ruin <= CIV.RUIN_MAX, `${c.title}: ruins stand ${c.ruin} years`);
+  const g = Game.fresh();
+  const target = nearby.find((s) => sitesAt(s.ref, 10).some((x) => x.alive && x.kind === 'home'))!;
+  fly(g, target.ref.id);
+  const c = g.people().sites.find((x) => x.alive)!.culture;
+  const known = g.state.stats.peoples;
+  assert.ok(known >= 1 && g.state.met[c.id].until >= c.born + c.life + c.ruin);
+  // A long list of the long dead, while these are still alive: the dead go, the living stay.
+  for (let i = 0; i < MEMORY.PEOPLES + 20; i++) g.state.met[`W-99:old.${i}`] = { title: `the Old ${i}`, home: `old.${i}`, t: -9e5, how: 'ruins', until: -8e5 + i };
+  g.state.stats.jumps = MEMORY.TIDY - 1;
+  fly(g, start.id);
+  assert.equal(Object.keys(g.state.met).length, MEMORY.PEOPLES);
+  assert.ok(g.state.met[c.id], 'nobody is forgotten while anything of theirs is left');
+  assert.ok(!g.state.met['W-99:old.0'] && g.state.met[`W-99:old.${MEMORY.PEOPLES + 19}`], 'the longest gone are dropped first');
+  // Ages later they are the longest gone themselves.
+  g.state.tGal = c.born + c.life + c.ruin + 9000;
+  for (let i = 0; i < MEMORY.PEOPLES + 20; i++) g.state.met[`W-98:late.${i}`] = { title: `the Late ${i}`, home: `late.${i}`, t: 0, how: 'ruins', until: g.state.tGal - 100 + i / 10 };
+  g.state.stats.jumps = MEMORY.TIDY - 1;
+  fly(g, nearby.find((s) => s.ref.id !== target.ref.id)!.ref.id);
+  assert.equal(g.state.met[c.id], undefined);
+  assert.equal(Object.keys(g.state.met).length, MEMORY.PEOPLES);
+  // The count is of everyone ever known, and where they lived their name is still to hand.
+  assert.match(said(g.exec('finds')), new RegExp(`peoples +${known} known`));
+  assert.ok(said(fly(g, target.ref.id)).includes(`Nothing is left of ${c.title}`));
+});
+
+test('a spreading culture that has ended holds no space, and is not looked up again once it is long gone', () => {
+  const cc = DEMO.coarse;
+  let reach: Culture | null = null;
+  for (let i = -3; i <= 3 && !reach; i++) {
+    for (let j = -3; j <= 3 && !reach; j++) {
+      for (const era of [0, -1, -2]) {
+        reach ??= cultures.reachesIn(Math.floor(start.x / cc) + i, Math.floor(start.y / cc) + j, era).find((c) => frontier(c, 500) > 10 && frontier(c, 0) > 10) ?? null;
+      }
+    }
+  }
+  assert.ok(reach);
+  const g = Game.fresh();
+  g.state.ship.levels.engine = 10;
+  g.state.ship.levels.hull = 10;
+  fly(g, reach.home.id);
+  assert.equal(g.state.met[reach.id]?.how, 'met');
+  const theirs = (game: Game) => (game as unknown as { heldPoints(within: number): { culture: Culture }[] }).heldPoints(400).filter((h) => h.culture.id === reach!.id).length;
+  assert.equal(theirs(g), 1, 'while they last, their space is there to draw');
+  // Just after their end, at their own home: the light from all of it says so.
+  g.state.tGal = reach.born + reach.life + reach.reach!.radius + 50;
+  assert.equal(theirs(g), 0);
+  // And once nothing of theirs is left, the chart does not so much as look them up.
+  g.state.tGal = g.state.met[reach.id].until + 1;
+  let lookups = 0;
+  const byId = g.cultures.byId.bind(g.cultures);
+  g.cultures.byId = (id: string) => {
+    if (id === reach!.id) lookups++;
+    return byId(id);
+  };
+  g.exec('chart far');
+  assert.equal(lookups, 0);
+  assert.doesNotMatch(said(g.exec('chart')), new RegExp(reach.title));
 });
