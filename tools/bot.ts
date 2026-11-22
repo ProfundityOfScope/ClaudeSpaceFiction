@@ -66,6 +66,8 @@ for (let j = 0; j < jumps && !stuck; j++) {
   if (here.sites.some((x) => !x.alive)) met.ruins++;
   if (!here.sites.length && !here.claims.length) met.quiet++;
   if (alive.length && firstMeeting.length < 3) firstMeeting.push(`jump ${j}, aboard ${game.state.tShip.toFixed(1)} yr`);
+  // Look at what is here, as a player would, then work it.
+  run('system');
   // Work the system: keep crews busy until nothing useful is left, or a year has gone.
   for (let round = 0; round < 40; round++) {
     for (const track of Object.keys(REFITS) as RefitTrack[]) {

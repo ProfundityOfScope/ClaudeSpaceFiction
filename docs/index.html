@@ -2558,7 +2558,7 @@ input, textarea {
       "New sky. I have nothing on file for this one.",
       "We're here. Nobody is expecting us, which simplifies things.",
       "Braking burn complete. The plume will be visible for light-years, to anyone looking.",
-      "Station kept. What we saw on the way in is on your table.",
+      "Station kept. I had a good look at the place on the way in.",
       "Arrived. The Surveyors were at the windows before I'd finished the burn.",
       "In orbit. Everything in this system is new to the Archive, including the dull parts.",
       "We've stopped. I recommend looking before deciding anything.",
@@ -2877,18 +2877,94 @@ input, textarea {
     return fill(lines[choice], vars);
   }
   var GUIDE = {
+    start: "I looked this system over on the way in. Ask for it and I will lay it out.",
+    startHint: 'Type a command or tap one below: "system" to begin. "help" lists them all.',
     first: "That is everything we could resolve on the way in. We have two crews, both idle. {where} has fuel for the taking, and a survey would tell us what the rest is worth.",
-    firstHint: 'Try "scoop {n}" and "survey". "ops" lists all the work here, and "system" shows this table and the crews again.',
+    firstHint: 'Try "scoop {n}" and "survey". "ops" lists all the work here.',
     firstBare: "That is everything we could resolve on the way in. We have two crews, both idle. A survey would tell us what this place is worth.",
-    firstBareHint: 'Try "survey". "ops" lists all the work here, and "system" shows this table and the crews again.',
+    firstBareHint: 'Try "survey". "ops" lists all the work here.',
     working: "Good. Nothing happens until you let the days run.",
     workingHint: '"stay" runs time until a crew finishes or something turns up. "stay 30" runs thirty days.',
     stayed: "That is the rhythm of it: put the crews to work, let the days run, see what turns up. Stay as long as it pays.",
     stayedHint: 'When you want to move on, "chart" shows what stands out among the stars in reach.',
     charted: "Pick one and I will work out what it costs. A few months for us is a few years for everyone outside.",
     chartedHint: '"plot 1" says what is at number 1 and what the trip costs. A name works too. "chart close" lists the nearest stars; "chart far" shows the wider sky.',
-    done: "That is all of it. I will stop explaining now. Ask, if you want my view of anything."
+    done: "That is all of it. I will stop explaining now. Ask, if you want my view of anything.",
+    doneHint: 'Every arrival starts like this one: a sentence from the Mind. "system" lays the place out in full.'
   };
+  var PLAIN = ["Standard", "Ordinary", "Unremarkable", "Textbook", "Garden-variety", "Perfectly ordinary", "Everyday", "Run-of-the-mill", "Plain", "Regulation"];
+  var FINE = ["lovely", "handsome", "fine", "splendid", "generous", "well-kept", "stately"];
+  var COUNT = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+  var GROUP = {
+    star: null,
+    scorched: "rock",
+    rocky: "rock",
+    desert: "rock",
+    ocean: "ocean",
+    ice: "ice",
+    gas: "giant",
+    icegiant: "giant",
+    belt: "belt",
+    dwarf: "dwarf",
+    comets: "comets"
+  };
+  var ROCKS = [
+    [],
+    ["one rock", "a single rock", "a lone rock"],
+    ["two rocks", "a pair of rocks", "a couple of rocks"],
+    ["some rocks", "three rocks", "a few rocks"]
+  ];
+  function metalWord(sys) {
+    if (STARS[sys.star].remnant) return "";
+    if (sys.feh <= -0.6) return "metal-poor ";
+    if (sys.feh <= -0.15) return "low-metallicity ";
+    if (sys.feh < 0.15) return "";
+    return sys.feh < 0.3 ? "metal-rich " : "very metal-rich ";
+  }
+  function groupWords(group, list, h) {
+    const n = list.length;
+    const some = COUNT[n] ?? "many";
+    switch (group) {
+      case "rock":
+        return n <= 3 ? ROCKS[n][h % 3] : ["some rocks", `${some} rocks`, "a string of rocks", "plenty of rock"][h % 4];
+      case "ocean":
+        return n === 1 ? "an ocean world" : `${some} ocean worlds`;
+      case "ice":
+        return n === 1 ? "an ice world" : `${some} ice worlds`;
+      case "belt":
+        return n === 1 ? "a belt" : `${some} belts`;
+      case "dwarf":
+        return n === 1 ? "a dwarf planet" : `${some} dwarf planets`;
+      case "comets":
+        return "a comet halo";
+      case "giant": {
+        const kinds = new Set(list.map((b) => b.kind));
+        const word = kinds.size > 1 ? "giant" : list[0].kind === "gas" ? "gas giant" : "ice giant";
+        if (n > 1) return `${some} ${word}s`;
+        const fine = FINE[(h >>> 4) % FINE.length];
+        if (list[0].rings) return `one ${fine} ringed ${word}`;
+        return list[0].moons >= 8 ? `one ${fine} ${word} system` : `one ${word}`;
+      }
+    }
+  }
+  function sketchSystem(sys, opts = {}) {
+    const h = strHash(`${sys.ref.id}:sketch`);
+    const info = STARS[sys.star];
+    const metal = metalWord(sys);
+    const common = sys.star === "M" || sys.star === "K" || sys.star === "G";
+    let star = common ? `${PLAIN[h % PLAIN.length]} ${metal}${info.name}` : `${/^[aeiou]/i.test(metal + info.name) ? "An" : "A"} ${metal}${info.name}`;
+    if (sys.companion) star += ` with a ${STARS[sys.companion].name} companion`;
+    const groups = /* @__PURE__ */ new Map();
+    for (const b of sys.bodies) {
+      const group = GROUP[b.kind];
+      if (group) groups.set(group, [...groups.get(group) ?? [], b]);
+    }
+    const items = [...groups].map(([group, list]) => groupWords(group, list, h >>> 8));
+    if (!items.length && opts.leave !== "sweep_empty") items.push("nothing in orbit");
+    if (items.length && groups.size && !groups.has("giant") && opts.leave !== "sweep_nogiant") items.push("no giants");
+    if (opts.odd && opts.leave !== "sweep_anomaly") items.push("and something I cannot place");
+    return [star, ...items].join(", ") + ".";
+  }
 
   // src/core/format.ts
   function pad(s, n) {
@@ -3314,15 +3390,11 @@ input, textarea {
       this.out.push({ k: "head", s: MIND_NAMES[this.state.mind.name].name.toUpperCase() });
       this.dim("a worldship, and the Mind that runs it");
       this.mindSays("Navigator. You asked to be woken when there was something to decide.");
-      this.mindSays(
-        `We are in orbit at ${sys.name}, ${where}. Tanks at ${Math.round(this.fuelPct)}%. The drive is the one we were launched with, which is to say modest.`
-      );
+      this.mindSays(`We are in orbit at ${sys.name}, ${where}. ${sketchSystem(sys, { odd: sys.anomaly })}`);
+      this.mindSays(`Tanks at ${Math.round(this.fuelPct)}%. The drive is the one we were launched with, which is to say modest.`);
       this.mindSays("The stars are close together here. I suggest we learn the neighbourhood before we try anything long.");
-      this.heading();
-      this.text(this.starText(sys));
-      this.pre(this.systemTable());
-      if (this.state.guide === 0) this.guideFirst();
-      this.dim('Type a command or tap one below. "help" lists them all.');
+      if (this.state.guide === 0) this.mindSays(GUIDE.start);
+      this.dim(GUIDE.startHint);
       return this.out;
     }
     exec(input) {
@@ -3413,10 +3485,11 @@ input, textarea {
       if (s.guide === void 0) return;
       if (s.stats.jumps > 0) {
         this.mindSays(GUIDE.done);
+        this.dim(GUIDE.doneHint);
         s.guide = void 0;
-      } else if (s.guide === 0) {
+      } else if (s.guide === 0 && verb === "system") {
         this.guideFirst();
-      } else if (s.guide === 1 && s.crews.some((c) => c !== null)) {
+      } else if (s.guide <= 1 && s.crews.some((c) => c !== null)) {
         this.mindSays(GUIDE.working);
         this.dim(GUIDE.workingHint);
         s.guide = 2;
@@ -3430,7 +3503,7 @@ input, textarea {
         s.guide = 4;
       }
     }
-    /** The first step of the walk-through: what the table is, and what to do with two idle crews. */
+    /** The first step of the walk-through, said under the system table: what to do with two idle crews. */
     guideFirst() {
       const giant = this.here.bodies.filter((b) => b.fuel > 0).sort((a, b) => b.fuel - a.fuel)[0];
       if (giant) {
@@ -3460,6 +3533,7 @@ input, textarea {
     /** Commands worth offering as one-tap buttons right now. */
     chips() {
       const s = this.state;
+      if (s.guide === 0) return ["system", "chart", "ship", "ask", "help"];
       if ((this.lastVerb === "chart" || this.lastVerb === "gas") && s.chart.length) {
         const others = ["chart close", "chart", "chart far"].filter((_, i) => i !== ["close", "mid", "far"].indexOf(this.lastZoom));
         return [...s.chart.slice(0, 5).map((_, i) => `plot ${i + 1}`), ...others, "system"];
@@ -3474,6 +3548,7 @@ input, textarea {
       if (ready && s.crews.some((c) => c === null)) chips2.push(`refit ${ready}`);
       chips2.push("system", "ops", "chart", "ship", "ask");
       if (s.guide === 3) return ["chart", ...chips2.filter((c) => c !== "chart")];
+      if (this.lastVerb === "burn" || this.lastVerb === "drift") return ["system", ...chips2.filter((c) => c !== "system")];
       return chips2;
     }
     // ---- looking at the system ---------------------------------------------
@@ -4810,25 +4885,28 @@ input, textarea {
       this.note(`${fromName} to ${this.nameOf(sys.ref.id)}, ${ly(leg.dist)} ly.`);
       this.dim(`\u2014 ${span(leg.ship)} aboard \xB7 ${span(leg.galaxy)} outside \xB7 ${ly(leg.dist)} ly \u2014`);
       this.heading();
-      if (!known) this.text(this.starText(sys));
       if (breach >= 0.5) this.out.push({ k: "alert", s: `The shield gave out on the way. Hull down ${Math.round(breach)} points.` });
-      this.pre(this.systemTable());
-      if (known) {
-        this.legend();
-      } else {
+      const about = { k: "mind", s: "" };
+      this.out.push(about);
+      if (!known) {
         const { credit, first } = this.approach();
-        if (first) this.good(`First ${STARS[sys.star].name} in the Archive.`);
-        const bodies = sys.bodies.length - 1;
-        this.dim(`${bodies === 0 ? "No bodies" : bodies === 1 ? "One body" : `${bodies} bodies`} resolved on the way in. Archive +${credit}. A survey would say what they are worth.`);
+        if (first) this.good(`First ${STARS[sys.star].name} in the Archive. (+${credit})`);
+        else this.dim(`New to the Archive. (+${credit})`);
       }
       const spoken = this.out.filter((o) => o.k === "mind").length;
       this.takeNote("arrive");
+      const line = (pool) => speak(s.mind, s.seed, pool, { sys: this.nameOf(sys.ref.id), gap: spanWords(gap), light: spanWords(leg.dist), outside: spanWords(leg.galaxy) });
+      let lead = null;
+      let tail = null;
+      let cue = null;
       if (this.out.filter((o) => o.k === "mind").length === spoken) {
         const { sites, claims } = this.people();
-        if (claims.length && !sites.some((x) => x.alive) && s.stats.systems % 2 === 0) this.say("civ_claim");
-        else if (known) this.say("revisit", { sys: this.nameOf(sys.ref.id), gap: spanWords(gap) });
-        else this.say(this.firstSight() ?? "arrive", { light: spanWords(leg.dist), outside: spanWords(leg.galaxy) });
+        if (claims.length && !sites.some((x) => x.alive) && s.stats.systems % 2 === 0) tail = line("civ_claim");
+        else if (known) lead = line("revisit");
+        else if (cue = this.firstSight()) tail = line(cue);
+        else lead = line("arrive");
       }
+      about.s = `${this.tag}: ${[lead, sketchSystem(sys, { odd: this.unresolvedAnomaly(sys.ref.id), leave: cue }), tail].filter(Boolean).join(" ")}`;
       if (!known) this.sayOnce(`star_${sys.star}`, `star_${sys.star}`);
       const d = s.mind.dissent;
       if (d) {

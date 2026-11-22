@@ -12,7 +12,7 @@ import { Cultures, HEARING, frontier, isLiving, type Culture, type Phase, type P
 import { relicFrom, relicLabel, ruinHint, ruinText, settledText } from './cultures.ts';
 import { drawPolygon, insidePolygon, nearestOnPolygon, paddedHull, type Point } from './hull.ts';
 import { cruiseGamma, planLeg, type Leg } from './travel.ts';
-import { GUIDE, fill, speak } from './mind.ts';
+import { GUIDE, fill, sketchSystem, speak } from './mind.ts';
 import { K, Stream, mix, strHash } from './rng.ts';
 import { MIND_NAMES } from './words.ts';
 import { capital, clock, gauge, lpad, ly, pad, span, spanWords } from './format.ts';
@@ -329,16 +329,11 @@ export class Game {
     this.out.push({ k: 'head', s: MIND_NAMES[this.state.mind.name].name.toUpperCase() });
     this.dim('a worldship, and the Mind that runs it');
     this.mindSays('Navigator. You asked to be woken when there was something to decide.');
-    this.mindSays(
-      `We are in orbit at ${sys.name}, ${where}. Tanks at ${Math.round(this.fuelPct)}%. The drive is the one we were launched with, which is to say modest.`,
-    );
+    this.mindSays(`We are in orbit at ${sys.name}, ${where}. ${sketchSystem(sys, { odd: sys.anomaly })}`);
+    this.mindSays(`Tanks at ${Math.round(this.fuelPct)}%. The drive is the one we were launched with, which is to say modest.`);
     this.mindSays('The stars are close together here. I suggest we learn the neighbourhood before we try anything long.');
-    // What the approach showed is already on the table: there is no first look to ask for.
-    this.heading();
-    this.text(this.starText(sys));
-    this.pre(this.systemTable());
-    if (this.state.guide === 0) this.guideFirst();
-    this.dim('Type a command or tap one below. "help" lists them all.');
+    if (this.state.guide === 0) this.mindSays(GUIDE.start);
+    this.dim(GUIDE.startHint);
     return this.out;
   }
 
@@ -391,11 +386,11 @@ export class Game {
     if (s.guide === undefined) return;
     if (s.stats.jumps > 0) {
       this.mindSays(GUIDE.done);
+      this.dim(GUIDE.doneHint);
       s.guide = undefined;
-    } else if (s.guide === 0) {
-      // Only when the opening lines were never shown: they say this themselves.
+    } else if (s.guide === 0 && verb === 'system') {
       this.guideFirst();
-    } else if (s.guide === 1 && s.crews.some((c) => c !== null)) {
+    } else if (s.guide <= 1 && s.crews.some((c) => c !== null)) {
       this.mindSays(GUIDE.working);
       this.dim(GUIDE.workingHint);
       s.guide = 2;
@@ -410,7 +405,7 @@ export class Game {
     }
   }
 
-  /** The first step of the walk-through: what the table is, and what to do with two idle crews. */
+  /** The first step of the walk-through, said under the system table: what to do with two idle crews. */
   private guideFirst() {
     const giant = this.here.bodies.filter((b) => b.fuel > 0).sort((a, b) => b.fuel - a.fuel)[0];
     if (giant) {
@@ -442,6 +437,8 @@ export class Game {
   /** Commands worth offering as one-tap buttons right now. */
   chips(): string[] {
     const s = this.state;
+    // A new voyage starts with one thing to try.
+    if (s.guide === 0) return ['system', 'chart', 'ship', 'ask', 'help'];
     if ((this.lastVerb === 'chart' || this.lastVerb === 'gas') && s.chart.length) {
       const others = (['chart close', 'chart', 'chart far'] as const).filter((_, i) => i !== ['close', 'mid', 'far'].indexOf(this.lastZoom));
       return [...s.chart.slice(0, 5).map((_, i) => `plot ${i + 1}`), ...others, 'system'];
@@ -458,6 +455,8 @@ export class Game {
     chips.push('system', 'ops', 'chart', 'ship', 'ask');
     // While the walkthrough is pointing at the chart, put it first.
     if (s.guide === 3) return ['chart', ...chips.filter((c) => c !== 'chart')];
+    // Just arrived: the Mind has said what is here in a sentence, and the full picture is one tap away.
+    if (this.lastVerb === 'burn' || this.lastVerb === 'drift') return ['system', ...chips.filter((c) => c !== 'system')];
     return chips;
   }
 
@@ -1918,30 +1917,35 @@ export class Game {
 
     this.dim(`— ${span(leg.ship)} aboard · ${span(leg.galaxy)} outside · ${ly(leg.dist)} ly —`);
     this.heading();
-    if (!known) this.text(this.starText(sys));
     if (breach >= 0.5) this.out.push({ k: 'alert', s: `The shield gave out on the way. Hull down ${Math.round(breach)} points.` });
 
-    // The system was looked over on the way in, so it is on the table as we make orbit.
-    this.pre(this.systemTable());
-    if (known) {
-      this.legend();
-    } else {
+    // The system was looked over on the way in. The Mind sums it up in a sentence, written once we know
+    // what else it has to say; the table itself waits to be asked for.
+    const about: Out = { k: 'mind', s: '' };
+    this.out.push(about);
+    if (!known) {
       const { credit, first } = this.approach();
-      if (first) this.good(`First ${STARS[sys.star].name} in the Archive.`);
-      const bodies = sys.bodies.length - 1;
-      this.dim(`${bodies === 0 ? 'No bodies' : bodies === 1 ? 'One body' : `${bodies} bodies`} resolved on the way in. Archive +${credit}. A survey would say what they are worth.`);
+      if (first) this.good(`First ${STARS[sys.star].name} in the Archive. (+${credit})`);
+      else this.dim(`New to the Archive. (+${credit})`);
     }
 
     // Other people come first. If the Mind has something to say about them, it skips its usual remark.
     const spoken = this.out.filter((o) => o.k === 'mind').length;
     this.takeNote('arrive');
+    // One more thing at most, in the same breath: before the sentence a word on arriving, or after it
+    // what stands out. Not when it has already spoken about the people here.
+    const line = (pool: string) => speak(s.mind, s.seed, pool, { sys: this.nameOf(sys.ref.id), gap: spanWords(gap), light: spanWords(leg.dist), outside: spanWords(leg.galaxy) });
+    let lead: string | null = null;
+    let tail: string | null = null;
+    let cue: string | null = null;
     if (this.out.filter((o) => o.k === 'mind').length === spoken) {
       const { sites, claims } = this.people();
-      if (claims.length && !sites.some((x) => x.alive) && s.stats.systems % 2 === 0) this.say('civ_claim');
-      else if (known) this.say('revisit', { sys: this.nameOf(sys.ref.id), gap: spanWords(gap) });
-      // One remark about a new place: what stands out in it, or else the arrival itself.
-      else this.say(this.firstSight() ?? 'arrive', { light: spanWords(leg.dist), outside: spanWords(leg.galaxy) });
+      if (claims.length && !sites.some((x) => x.alive) && s.stats.systems % 2 === 0) tail = line('civ_claim');
+      else if (known) lead = line('revisit');
+      else if ((cue = this.firstSight())) tail = line(cue);
+      else lead = line('arrive');
     }
+    about.s = `${this.tag}: ${[lead, sketchSystem(sys, { odd: this.unresolvedAnomaly(sys.ref.id), leave: cue }), tail].filter(Boolean).join(' ')}`;
     if (!known) this.sayOnce(`star_${sys.star}`, `star_${sys.star}`);
 
     const d = s.mind.dissent;

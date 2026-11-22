@@ -1,6 +1,6 @@
 # ClaudeSpaceFiction
 
-A text prototype for **Lightspeed**: a forever cruise on a relativistic worldship. You are the navigator, woken by the ship's Mind when there is something to decide. Arrive, see what the approach showed, put crews to work, stay as long as it pays, pick the next star, burn.
+A text prototype for **Lightspeed**: a forever cruise on a relativistic worldship. You are the navigator, woken by the ship's Mind when there is something to decide. Arrive, hear what the Mind makes of the place, put crews to work, stay as long as it pays, pick the next star, burn.
 
 The point of the prototype is to find out what is fun before anything is drawn.
 
@@ -20,7 +20,7 @@ node tools/play.ts system ops # run some commands and exit
 
 ## What is in this slice
 
-- **The loop.** Arrive, and the system is already on the table: the ship looked it over while braking in. Assign crews (`scoop` fuel from giants, cut `ice` for the forward shield, `mine` stock for the hold, `survey`, deep `scan` oddities, `repair`), let days pass with `stay`, then `chart`, `plot` and `burn`. `system` shows the system again and what each crew is doing; `ship` shows the ship and its refits. What the approach cannot tell you is what anything is worth: that takes a `survey`, which needs crews, closeness and time.
+- **The loop.** Arrive, and the Mind says in a sentence what it saw while braking in ("Standard low-metallicity orange dwarf, one rock, one lovely gas giant system, a comet halo"). `system` lays the place out in full. Assign crews (`scoop` fuel from giants, cut `ice` for the forward shield, `mine` stock for the hold, `survey`, deep `scan` oddities, `repair`), let days pass with `stay`, then `chart`, `plot` and `burn`. `system` also shows what each crew is doing; `ship` shows the ship and its refits. What the approach cannot tell you is what anything is worth: that takes a `survey`, which needs crews, closeness and time.
 - **Two clocks.** Every trip costs time aboard and more time outside.
 - **Gas sets the speed.** In gas of density n the ship cruises at gamma = sqrt(1 + P / n), where P grows with engine thrust and hull grade. Thin gas is fast; clouds are walls for a young ship. `chart far` shows where it lies.
 - **Two ways to burn.** `burn` goes at full thrust. `burn eco` goes at a quarter: fuel use goes as thrust squared, so it is far cheaper, but it takes about twice as long and time under way wears the hull.

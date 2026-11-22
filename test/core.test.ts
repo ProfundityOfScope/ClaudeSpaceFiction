@@ -2,13 +2,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DEMO, REFITS } from '../src/core/config.ts';
 import { Galaxy } from '../src/core/galaxy.ts';
-import { generateSystem } from '../src/core/system.ts';
+import { STARS, generateSystem } from '../src/core/system.ts';
 import { cruiseGamma, planLeg } from '../src/core/travel.ts';
 import { Game } from '../src/core/game.ts';
 import { findStart } from '../src/core/state.ts';
 import { WIDTH } from '../src/core/format.ts';
 import { FEATURES } from '../src/core/features.ts';
-import { LINES } from '../src/core/mind.ts';
+import { LINES, sketchSystem } from '../src/core/mind.ts';
 import { convexHull, drawPolygon, insidePolygon, paddedHull } from '../src/core/hull.ts';
 
 const galaxy = new Galaxy(DEMO);
@@ -145,10 +145,15 @@ const said = (out: { s: string }[]) => out.map((o) => o.s).join('\n');
 
 test('a new voyage is walked through its first visit, once', () => {
   const g = Game.fresh();
-  // The opening shows the system as the approach found it, and says what to do with it.
+  // The opening sums the system up in a sentence and points at the one command that lays it out.
   const opening = g.intro();
-  assert.ok(opening.some((o) => o.k === 'pre' && o.s.includes('the star')), 'the system table is on the first screen');
-  assert.match(said(opening), /resolve on the way in.*\n.*Try "scoop \d+" and "survey"/);
+  assert.ok(said(opening).includes(sketchSystem(g.here)), 'the Mind says what is here');
+  assert.ok(!opening.some((o) => o.k === 'pre'), 'and the table waits to be asked for');
+  assert.match(said(opening), /"system" to begin/);
+  assert.deepEqual(g.chips(), ['system', 'chart', 'ship', 'ask', 'help']);
+  const laid = g.exec('system');
+  assert.ok(laid.some((o) => o.k === 'pre' && o.s.includes('the star')));
+  assert.match(said(laid), /resolve on the way in.*\n.*Try "scoop \d+" and "survey"/);
   assert.match(said(g.exec('survey')), /let the days run/);
   assert.match(said(g.exec('stay 5')), /That is the rhythm/);
   assert.match(said(g.exec('chart')), /Pick one/);
@@ -159,6 +164,41 @@ test('a new voyage is walked through its first visit, once', () => {
   assert.doesNotMatch(said(g.exec('system')), /Try "scoop/);
 });
 
+test('the Mind sums a system up in one sentence, and arriving says that and not the whole table', () => {
+  const galaxy = new Galaxy(DEMO);
+  const start = findStart(galaxy);
+  const systems = galaxy.within(start.x, start.y, 60).map((s) => generateSystem(galaxy, s.ref));
+  assert.ok(systems.length > 300);
+  let longest = 0;
+  for (const sys of systems) {
+    const text = sketchSystem(sys);
+    assert.equal(sketchSystem(sys), text, 'the same place is described the same way');
+    assert.ok(text.includes(STARS[sys.star].name) && text.endsWith('.') && !/undefined|  |, ,/.test(text), text);
+    const bodies = sys.bodies.length - 1;
+    assert.equal(/no giants/.test(text), bodies > 0 && sys.giants === 0, `${sys.name}: ${text}`);
+    assert.equal(/nothing in orbit/.test(text), bodies === 0, `${sys.name}: ${text}`);
+    // After the star itself, a giant is mentioned exactly when there is one.
+    assert.equal(/giant/.test(text.split(', ').slice(1).join(', ').replace('no giants', '')), sys.giants > 0, `${sys.name}: ${text}`);
+    longest = Math.max(longest, text.length);
+  }
+  assert.ok(longest < 170, `the longest is ${longest} characters`);
+  // What the Mind is about to say in its own words is left out of the sentence.
+  const bare = systems.find((sys) => sys.bodies.length > 1 && sys.giants === 0)!;
+  assert.doesNotMatch(sketchSystem(bare, { leave: 'sweep_nogiant' }), /no giants/);
+  assert.match(sketchSystem(bare, { odd: true }), /something I cannot place\.$/);
+
+  // Arriving: the sentence, no table, and "system" first among the buttons.
+  const g = Game.fresh();
+  g.exec('system');
+  for (const c of ['chart close', 'plot 1']) g.exec(c);
+  const arrival = g.exec('burn');
+  assert.equal(g.state.stats.jumps, 1);
+  assert.ok(!arrival.some((o) => o.k === 'pre'), 'no table on arrival');
+  assert.ok(arrival.filter((o) => o.k === 'mind').some((o) => o.s.includes(STARS[g.here.star].name)), 'the Mind names what kind of place this is');
+  assert.equal(g.chips()[0], 'system');
+  assert.ok(g.exec('system').some((o) => o.k === 'pre' && o.s.includes('the star')));
+});
+
 test('a save from an older version is refused, and says why', () => {
   const old = JSON.parse(Game.fresh().save());
   old.v = 1;
@@ -167,7 +207,7 @@ test('a save from an older version is refused, and says why', () => {
 
 test('other names and near misses for commands', () => {
   const g = Game.fresh();
-  g.intro();
+  g.exec('system');
   // The old names for the system view still work: there is no separate sweep to ask for any more.
   for (const name of ['map', 'look', 'sweep', 'sys', 'l']) assert.deepEqual(g.exec(name).slice(1), g.exec('system').slice(1));
   assert.match(said(g.exec('sistem')), /Did you mean "system"\?/);

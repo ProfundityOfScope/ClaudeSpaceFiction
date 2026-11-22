@@ -6,8 +6,8 @@
  * Mind does not repeat itself for a long while. `{name}` slots are filled
  * from the game state.
  */
-import { K, Stream } from './rng.ts';
-import type { StarKind } from './system.ts';
+import { K, Stream, strHash } from './rng.ts';
+import { STARS, type Body, type BodyKind, type StarKind, type StarSystem } from './system.ts';
 
 export interface MindState {
   /** Index into MIND_NAMES. */
@@ -39,7 +39,7 @@ export const LINES: Record<string, string[]> = {
     'New sky. I have nothing on file for this one.',
     "We're here. Nobody is expecting us, which simplifies things.",
     'Braking burn complete. The plume will be visible for light-years, to anyone looking.',
-    'Station kept. What we saw on the way in is on your table.',
+    'Station kept. I had a good look at the place on the way in.',
     "Arrived. The Surveyors were at the windows before I'd finished the burn.",
     'In orbit. Everything in this system is new to the Archive, including the dull parts.',
     "We've stopped. I recommend looking before deciding anything.",
@@ -378,10 +378,12 @@ export function speak(mind: MindState, seed: number, pool: string, vars: Record<
  * order, as the navigator reaches that step; `hint` names the commands.
  */
 export const GUIDE = {
+  start: 'I looked this system over on the way in. Ask for it and I will lay it out.',
+  startHint: 'Type a command or tap one below: "system" to begin. "help" lists them all.',
   first: 'That is everything we could resolve on the way in. We have two crews, both idle. {where} has fuel for the taking, and a survey would tell us what the rest is worth.',
-  firstHint: 'Try "scoop {n}" and "survey". "ops" lists all the work here, and "system" shows this table and the crews again.',
+  firstHint: 'Try "scoop {n}" and "survey". "ops" lists all the work here.',
   firstBare: 'That is everything we could resolve on the way in. We have two crews, both idle. A survey would tell us what this place is worth.',
-  firstBareHint: 'Try "survey". "ops" lists all the work here, and "system" shows this table and the crews again.',
+  firstBareHint: 'Try "survey". "ops" lists all the work here.',
   working: 'Good. Nothing happens until you let the days run.',
   workingHint: '"stay" runs time until a crew finishes or something turns up. "stay 30" runs thirty days.',
   stayed: 'That is the rhythm of it: put the crews to work, let the days run, see what turns up. Stay as long as it pays.',
@@ -389,4 +391,87 @@ export const GUIDE = {
   charted: 'Pick one and I will work out what it costs. A few months for us is a few years for everyone outside.',
   chartedHint: '"plot 1" says what is at number 1 and what the trip costs. A name works too. "chart close" lists the nearest stars; "chart far" shows the wider sky.',
   done: 'That is all of it. I will stop explaining now. Ask, if you want my view of anything.',
+  doneHint: 'Every arrival starts like this one: a sentence from the Mind. "system" lays the place out in full.',
 } as const;
+
+// ---- a system at first sight ------------------------------------------------
+//
+// On making orbit the Mind sums the system up in a sentence, from what it saw
+// on the way in. The sentence is built from the system itself, so it is
+// information, and the same place is always described the same way. The word
+// lists are there to be added to.
+
+/** How it opens on a star of the commonest kinds. */
+const PLAIN = ['Standard', 'Ordinary', 'Unremarkable', 'Textbook', 'Garden-variety', 'Perfectly ordinary', 'Everyday', 'Run-of-the-mill', 'Plain', 'Regulation'];
+/** What it calls a giant with rings, or a good family of moons. */
+const FINE = ['lovely', 'handsome', 'fine', 'splendid', 'generous', 'well-kept', 'stately'];
+const COUNT = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
+
+type Group = 'rock' | 'ocean' | 'ice' | 'giant' | 'belt' | 'dwarf' | 'comets';
+const GROUP: Record<BodyKind, Group | null> = {
+  star: null, scorched: 'rock', rocky: 'rock', desert: 'rock', ocean: 'ocean', ice: 'ice',
+  gas: 'giant', icegiant: 'giant', belt: 'belt', dwarf: 'dwarf', comets: 'comets',
+};
+const ROCKS = [
+  [],
+  ['one rock', 'a single rock', 'a lone rock'],
+  ['two rocks', 'a pair of rocks', 'a couple of rocks'],
+  ['some rocks', 'three rocks', 'a few rocks'],
+];
+
+function metalWord(sys: StarSystem): string {
+  if (STARS[sys.star].remnant) return '';
+  if (sys.feh <= -0.6) return 'metal-poor ';
+  if (sys.feh <= -0.15) return 'low-metallicity ';
+  if (sys.feh < 0.15) return '';
+  return sys.feh < 0.3 ? 'metal-rich ' : 'very metal-rich ';
+}
+
+function groupWords(group: Group, list: Body[], h: number): string {
+  const n = list.length;
+  const some = COUNT[n] ?? 'many';
+  switch (group) {
+    case 'rock': return n <= 3 ? ROCKS[n][h % 3] : ['some rocks', `${some} rocks`, 'a string of rocks', 'plenty of rock'][h % 4];
+    case 'ocean': return n === 1 ? 'an ocean world' : `${some} ocean worlds`;
+    case 'ice': return n === 1 ? 'an ice world' : `${some} ice worlds`;
+    case 'belt': return n === 1 ? 'a belt' : `${some} belts`;
+    case 'dwarf': return n === 1 ? 'a dwarf planet' : `${some} dwarf planets`;
+    case 'comets': return 'a comet halo';
+    case 'giant': {
+      const kinds = new Set(list.map((b) => b.kind));
+      const word = kinds.size > 1 ? 'giant' : list[0].kind === 'gas' ? 'gas giant' : 'ice giant';
+      if (n > 1) return `${some} ${word}s`;
+      const fine = FINE[(h >>> 4) % FINE.length];
+      if (list[0].rings) return `one ${fine} ringed ${word}`;
+      return list[0].moons >= 8 ? `one ${fine} ${word} system` : `one ${word}`;
+    }
+  }
+}
+
+/**
+ * "Standard low-metallicity orange dwarf, one rock, one lovely gas giant system, a comet halo."
+ *
+ * `odd` adds that something here does not fit. `leave` names the one thing the
+ * Mind is about to say in its own words (the pool it will use), so that the
+ * sentence does not say it as well.
+ */
+export function sketchSystem(sys: StarSystem, opts: { odd?: boolean; leave?: string | null } = {}): string {
+  const h = strHash(`${sys.ref.id}:sketch`);
+  const info = STARS[sys.star];
+  const metal = metalWord(sys);
+  const common = sys.star === 'M' || sys.star === 'K' || sys.star === 'G';
+  let star = common ? `${PLAIN[h % PLAIN.length]} ${metal}${info.name}` : `${/^[aeiou]/i.test(metal + info.name) ? 'An' : 'A'} ${metal}${info.name}`;
+  if (sys.companion) star += ` with a ${STARS[sys.companion].name} companion`;
+
+  // Group the bodies by kind, in the order the kinds are met going outward.
+  const groups = new Map<Group, Body[]>();
+  for (const b of sys.bodies) {
+    const group = GROUP[b.kind];
+    if (group) groups.set(group, [...(groups.get(group) ?? []), b]);
+  }
+  const items = [...groups].map(([group, list]) => groupWords(group, list, h >>> 8));
+  if (!items.length && opts.leave !== 'sweep_empty') items.push('nothing in orbit');
+  if (items.length && groups.size && !groups.has('giant') && opts.leave !== 'sweep_nogiant') items.push('no giants');
+  if (opts.odd && opts.leave !== 'sweep_anomaly') items.push('and something I cannot place');
+  return [star, ...items].join(', ') + '.';
+}
