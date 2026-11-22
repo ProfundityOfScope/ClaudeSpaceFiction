@@ -220,6 +220,59 @@ export const LINES: Record<string, string[]> = {
   relic: [
     "Somebody made that. They are not here now, and I can't yet say for how long.",
     "The Wrights have it in the yard. They've put a rope around it, as if it might leave.",
+    'Small enough to carry and old enough to matter. I have logged whose it was.',
+    'It is in the hold, padded. Somebody, somewhere, will want to see that.',
+  ],
+
+  signal_first: [
+    'Number {n} is broadcasting. Structured, repeating, nothing a star does. Somebody is home there, or was {light} ago when that light left.',
+  ],
+  civ_first: [
+    'So we are not the only ones out here. I had assumed as much. It is different to see the lights.',
+    'People. Not ours. I have had a greeting drafted for some centuries, and now none of it seems right.',
+  ],
+  civ_arrive: [
+    'They have seen our plume. They would have to be asleep not to.',
+    "Somebody else's sky. We are guests here, whether or not anyone has said so.",
+    "I'm listening on everything. They are talking about us, I think. I would be.",
+    'Occupied. I have dimmed the running lights, which is manners where I come from.',
+    'Their traffic has changed course around us. Politely, so far.',
+    'New people. I am keeping a respectful orbit and a very full log.',
+  ],
+  civ_outpost: [
+    'A long way from home, these ones. So are we.',
+    'An outpost. Somebody thought this place was worth the freight.',
+    'A flag, a dock and a few thousand people. Empires look like this at the edges.',
+  ],
+  civ_claim: [
+    'Somebody has drawn a line around this space. Nobody is here to hold it.',
+    'Claimed, by the broadcasts. Empty, by the telescopes.',
+  ],
+  civ_same: [
+    'I know these people. They have changed the name on the door.',
+    'The same kind of creature as before, with a different flag. It has been long enough for that.',
+  ],
+  civ_ruins: [
+    'Somebody built here, and stopped. A deep scan would tell us who.',
+    "That is not geology. I'd like to know whose it was.",
+    'Ruins. I never know whether to lower my voice.',
+    "Somebody's work, gone quiet. We could spare a crew to read it.",
+  ],
+  civ_gone: [
+    'We were talking to them not long ago, by my clock. I keep both clocks. This is what the other one is for.',
+    'They had the rest of their history while we were between stars.',
+    'I have their broadcasts on file. I may be the only one who does.',
+    "I liked them. I would rather not say that about people who can't hear it, but there it is.",
+  ],
+  civ_new: [
+    'There was nobody here when we last looked. I checked my own log to be sure.',
+    'New since our last visit. We were gone long enough for someone to learn to build.',
+  ],
+  ruin_read: [
+    'I have a name for them now. That is more than they have.',
+    "I've added what they wrote to the Archive. Somebody ought to keep it.",
+    'All of that, and what is left fits in a survey report.',
+    'They counted, they built, they stopped. I can tell you the first two in detail.',
   ],
 
   fancy_seen: [
@@ -317,14 +370,14 @@ export function speak(mind: MindState, seed: number, pool: string, vars: Record<
 export const GUIDE = {
   start: 'First, a sweep. It costs an hour and shows what orbits this star.',
   swept: 'That is everything big enough to see from here. We have two crews, both idle. {where} has fuel for the taking, and a survey would tell us what the rest is worth.',
-  sweptHint: 'Try "scoop {n}" and "survey". "ops" lists all the work here, and "look" (or "map") shows this table again.',
+  sweptHint: 'Try "scoop {n}" and "survey". "ops" lists all the work here, and "look" shows this table and the crews again.',
   sweptBare: 'That is everything big enough to see from here. We have two crews, both idle. A survey would tell us what this place is worth.',
-  sweptBareHint: 'Try "survey". "ops" lists all the work here, and "look" (or "map") shows this table again.',
+  sweptBareHint: 'Try "survey". "ops" lists all the work here, and "look" shows this table and the crews again.',
   working: 'Good. Nothing happens until you let the days run.',
   workingHint: '"stay" runs time until a crew finishes or something turns up. "stay 30" runs thirty days.',
   stayed: 'That is the rhythm of it: put the crews to work, let the days run, see what turns up. Stay as long as it pays.',
-  stayedHint: 'When you want to move on, "chart" shows the stars in reach.',
+  stayedHint: 'When you want to move on, "chart" shows what stands out among the stars in reach.',
   charted: 'Pick one and I will work out what it costs. A few months for us is a few years for everyone outside.',
-  chartedHint: '"plot 1" costs the trip to number 1. "scope 1" is what the telescope sees there. "gas" shows the wider sky.',
+  chartedHint: '"plot 1" says what is at number 1 and what the trip costs. A name works too. "chart close" lists the nearest stars; "chart far" shows the wider sky.',
   done: 'That is all of it. I will stop explaining now. Ask, if you want my view of anything.',
 } as const;

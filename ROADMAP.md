@@ -8,10 +8,10 @@ A text prototype of the game Lightspeed: a forever cruise on a relativistic worl
 
 ## Where things stand
 
-- `main` = slice 1 plus the video renderer. `v0.1.0` tags slice 1 (commit 8461d87).
+- `main` = slice 1, the video renderer, onboarding and tuning, and the pixel maps. `v0.1.0` tags slice 1 (commit 8461d87). Nothing since has been tagged; suggest `v0.1.1` or fold it into `v0.2.0`.
 - Public page: GitHub Pages serves `main` / `docs/`. Dev preview: a private Artifact named "Lightspeed", republished from `dist/artifact.html` (find it in the artifact list; pass its URL to update it in place).
-- Current branch of work: `claude/onboarding-and-tuning`. Next after it: slice 2.
-- Play-test 1 is in (below). The trimmed plan for this branch is built and in a pull request, waiting for the owner to play it.
+- Current branch of work: `claude/civilisations` (slice 2). Step 1 of three is built and in a pull request: cultures exist and can be seen, ruins can be read, relics can be carried. **Stop here** until the owner has judged how busy the galaxy feels; then step 2 (contact and consequences), then step 3 (trade).
+- Not yet heard: how the onboarding, the economy burn and the gas views played. Ask.
 
 ## What the owner wants (their steers, in order of weight)
 
@@ -61,9 +61,10 @@ Two further items the owner named after play-test 1. They sit beside the slices;
 
 ### Onboarding and tuning (built, awaiting the owner's play-test)
 
+- **Views.** `look` is the system table plus what each crew is doing, with `c1` under the body crew 1 is working. `ops` is the work on offer. `ship` includes the refit table; `refits` is another word for it. These merges came out of the phone concept, where three panes covered what five commands did.
 - **Onboarding.** `guide` in the save is the step of a first-visit walkthrough; the lines are `GUIDE` in `mind.ts` and the logic is `Game.guide`. It reacts to what has happened, so steps taken out of order are skipped, and it ends at the first arrival. Saves without the field are never walked through. Also: `map`/`system` for `look`, a fixed closing set of buttons (look, ops, chart, ship, ask), and "did you mean" on near misses.
 - **Burns.** Fuel is thrust squared times time under burn, so `burn eco` (a quarter thrust) costs roughly an eighth of the fuel for twice the time. `TRANSIT_WEAR` (1.5% hull per year under way) is the price of going slowly. The plot table now shows time for each burn and fuel, shield and hull on arrival.
-- **Gas.** `gas` draws the sky out to 100 ly (times optics) in five shades and lists the bright stars in range; `plot` works on its numbers. The chart has a one-character column for the gas on the way to each star.
+- **Gas.** The chart has a one-character column for the gas on the way to each star (`#` if a cloud lies anywhere across the line). The wide view of where the gas is has since become `chart far`; see Charts and map pictures.
 - **The Mind.** Comments only on the first unremarkable plot of a visit. Dissents change wording from the third, and go terse after four correct in a row (`streak`). Reckonings name the run. Refusals escalate (`refused`).
 - **Small.** Wind skimming doubled. A note when bigger tanks lower the fuel percentage. Below 40% hull the drive is throttled to 70%.
 
@@ -73,12 +74,15 @@ Not addressed here, on purpose: any incentive to move on (ship politics; ISRU fo
 
 Things to ask after the next play-test: is economy now worth choosing; is the hull cost of a slow burn noticeable; does the wide gas view make gas readable; did the walkthrough help or get in the way.
 
-### Map pictures (built, in its own pull request on top of onboarding)
+### Charts
 
-- The owner asked for the smallest possible graphics for the star map: a static image, low-resolution and blocky, in the terminal's own look, and **not interactive yet**. Do not add tap-to-plot or anything else to it without asking.
-- How: `chart` and `gas` emit an output item of kind `map`. Its `s` is the character map (what a terminal and the bot see); its `map` is the data (`MapData` in `game.ts`): a 64 by 64 grid of gas levels and the stars inside it. `drawMap` in `src/web/main.ts` draws one cell per pixel in the page's colour tokens and CSS scales it up unsmoothed.
-- It is drawn once when printed. It does not redraw if the theme changes.
-- Resist drawing more (system diagrams, gauges) until asked: the prototype is for finding the fun in text.
+History, because it explains the shape of the code. First a 64-cell picture for `chart` and a separate `gas` view. The owner found that too chunky and hard to relate, so it became one chart with three zooms and a finer picture with a tinted hull for a culture's space. Then the concept art for a phone app (see Media) made it plain that the map's real home is a full screen moved by hand, and that polishing a static picture in the log was time not spent on the game. So **the page shows the character map again**, and what the picture taught went into words.
+
+- **Three zooms that nest**, each four times wider than the last (`ZOOM_STEP`). `chart close` is sized to hold the nearest nine stars, rounded up to a tidy figure. `chart` (the default, `mid` in the code) is what stands out within four times that. `chart far` (also `gas`) is sixteen times. Each numbers what suits its scale: the nearest nine; voices, flagged systems and bright stars; bright stars and voices beyond the plain chart.
+- **Under each list, in words**: which numbers a hard burn reaches on these tanks, which only economy reaches, and which are out of reach (`reachWords`); and whose space we are inside, or how near it begins and in which direction (`heldWords`).
+- **`plot`** takes a number from the last chart or a star's name (whole or part), and says what the telescopes see as well as the cost. `scope` is now just another word for it.
+- **The picture's data is still made.** Every chart item carries `MapData` (96 cells a side: gas in 36 shades, stars, `held` space as a hull, `inner` box for the next zoom in). Nothing draws it now; it is there because it is exactly what an app's map would draw, and the tests keep it honest. The page's drawing code (`drawMap`) was removed in the commit that made this change and is in the history if wanted.
+- **Do not bring the picture back, or make any map interactive, without being asked.**
 
 ### ISRU improvements: thinking so far
 
@@ -94,13 +98,68 @@ Things to ask after the next play-test: is economy now worth choosing; is the hu
 - With more weight it could gate things: a bloc refusing a crew, a refit, or a burn; the Mind mediating; the navigator spending standing to overrule.
 - The transit wear added on this branch is a stopgap for "time has a price". Revisit it when this lands.
 
-### Slice 2 design, as far as it is thought through
+### Slice 2: what the owner has decided
 
-- **A civilisation is a seeded birth** in a coarse space-time cell: origin system, birth year, temperament genes (expansion, aggression, openness, cohesion, longevity), growth rate, maximum reach (light-lag limited, tens of ly typical, a few hundred at most), lifespan. Then `whoHolds(place, year)` and `phaseOf(civ, year)` are closed-form. Nothing is simulated between visits.
-- **Ruins fall out**: any system a dead civilisation used to reach. Attribute the existing relic finds to a civilisation with a name and an age.
-- **Species and names** from a grammar; invented-syllable names belong to civilisations, plain nouns to stars.
-- **Contact** is small: one exchange per visit, shaped by temperament and phase. **Trade** is wants and offers by tag, no prices. The Archive and carried relics are the currency; old records of a dead neighbour should be worth something.
-- New random streams get **new keys in `K`** (`rng.ts`). Never renumber.
+- **Density.** Cultures can be fairly prominent in the starting cluster, for testing and for the early game. Outside it they are rare by the numbers, about one system in a hundred, but not vanishingly rare.
+- **Ruins are derived, not tuned.** They are wherever a culture used to be. Their frequency follows from the population and its lifespans.
+- **Slow change is fine.** On the weak drive and short hops nothing much changes; long hauls are where turnover should be felt.
+- **Sameness comes later.** The tables of species, temperaments and lines will be fleshed out a lot afterwards, so build them as data that is easy to extend.
+- **Who is out there.** The ship carries humans, but not only humans. Nothing found out there is human.
+- **Consequences, but no death.** Hostility must cost something. The ship is well defended, and the Mind can override the navigator and force an emergency exit, possibly ending in a drift until rescue. The navigator never dies.
+- **Oddities, ruins and relics are three things.**
+  - *Oddities* (the survey's finds) should be mostly natural, a function of the kind of body, or things that can sit outside time, such as a derelict of unknown age. Use the timeless made things sparingly: radiation and drifting orbits would wear most of them away.
+  - *Ruins* are manifestations of a culture that has ended, and are temporary. Surface works such as the worked stone and the drowned sea walls belong here, not among the oddities.
+  - *Relics* are items: rare from some ruins, rarer still from oddities. They are carried in the hold and may be worth something to cultures of certain temperaments.
+  - Do not rewrite star generation to hold permanent relics.
+- **The emergency exit.** For now the Mind bails at 10% hull. Leave the hook for a smarter rule: the nearest empty system is known, so the cutoff can be placed where the resulting drift is painful but not catastrophic.
+- **Existing voyages may be invalidated** freely during testing. Saves are now version 2; older ones start afresh.
+
+### Slice 2 design (approved; step 1 built, steps 2 and 3 to come)
+
+- **Generator, `civs.ts`, pure functions of (seed, place, year).**
+  - *Worlds*: single-system cultures, rolled per system and per era.
+  - *Reaches*: the few that spread, rolled per coarse cell and per era, each with a home system, a frontier speed, a furthest radius and a lifespan. A system inside a living Reach is claimed; about half of those carry an outpost.
+  - *Phases* from age over lifespan: founding, rising, height, decline; then ruins, old ruins, nothing.
+- **Identity** from extendable tables in `cultures.ts`. Nothing human.
+- **Contact (step 2).** They state terms on arrival (welcome, toll, keep out) by temperament, phase and how past visits went. Comply or ignore. Ignoring a strong culture escalates: warning, then damage, then the Mind takes the conn and burns for the nearest empty system. With dry tanks that becomes the long fall. Never a game over.
+- **Trade (step 3).** Each culture wants two things and offers two: materials, records by Archive category (each category once per culture), carried items; fuel, ice, repairs, help with a refit, charts that mark leads, their records, a keepsake. No prices. Relics are worth something to cultures of certain temperaments (`RelicKind` is there for this).
+
+### Slice 2, step 1 as built
+
+How it works, for whoever picks this up:
+
+- **Eras with offsets.** Time is cut into eras of `CIV.ERA` years. A system raises at most one culture per era and a culture's whole life fits inside its era, so two never overlap at one world. Every system and every coarse cell counts its eras from its own hashed offset. Without the offsets the whole galaxy died at each era boundary; the first census caught that. Ruins last less than an era, so any year needs only the current era and the one before.
+- **A Reach's home** is the nearest world that could raise a people and that no single-world culture is using during the Reach's life. `frontier(c, year)` grows from home, holds, and falls back to a quarter during decline. An outpost lives from when the frontier reaches it until the frontier falls back past it, then is a ruin for a while.
+- **The people belong to the world.** The species sketch is seeded by the home system, not the era. A later culture there is the same kind of creature under a newer name, and the game says so if both are known.
+- **`Cultures` (in `civs.ts`)**: `presence(sys, year)` gives sites (home or outpost, living or ruined) and claims; `heard(sys, year, dist)` is what the light shows, so it asks about `year - dist`; `signals()` lists everything audible from a point; `byId` finds a culture again. All tunables are `CIV` in `config.ts`.
+- **In the game.** `takeNote('arrive' | 'sweep' | 'stay')` is the one place that reports on people: what became of those we knew, anyone new, and ruins once the system is swept. `meet`, `noticeRuin` and `finishRuin` do the rest. `scanTargets()` is the single list of things a deep scan can be pointed at (oddity hints and ruins). Crews take nothing from a living home world (`homes()`).
+- **Saved**: `state.met` (cultures known, by id), `mem.seen` (who was here and in what phase, for telling the difference), `mem.sites` (ruins read), `ship.relics` as objects (what, whose, kind, year). Save version 2; older saves are refused and the page starts a new voyage with a line saying why.
+- **Seeing them**: a line under the heading; `^` on a body in the system table; a `^` column on the charts for signals (the name column shrank to 14 to fit); the edge of a spreading culture's space on the maps. The page draws all of that in `--ok` green. Unread ruins within planet-resolving range (10 ly times optics) carry the same `!` as oddities, and `scope` says which it is. That flag was Claude's suggestion after the owner asked where the nearest ruins were; they did not clearly ask for it, so check that they want it.
+- **Oddities**: the worked stone and the sea walls left the catalogue and are now ruins. The remaining made things are category `artefact`, all rarity 3, and carry `relic: { what, kind, chance }`.
+- **The start**: `findStart` now wants an empty system with somebody alive and somebody's ruins within the first chart. The default seed starts at Ember 99.
+- **Tools**: `npm run census` counts cultures, outposts and ruins in the starting cluster and the field. The bot counts who it meets; `--deaf` makes it ignore signals.
+
+Numbers on the default seed (rerun the census after touching `CIV`):
+
+- Field systems: about 1.05% are somebody's home, 0.3% carry an outpost, 0.7% are claimed, 1.5% have ruins.
+- The starting cluster (117 systems): 5 to 12% inhabited and 7 to 11% with ruins, depending on the year. Four living cultures within 8 ly of the start and four ruins within 10.
+- From a field system the nearest living culture is about 21 ly off (median) and the nearest ruin about 16.
+- Spreading cultures: about 0.44 alive per coarse cell; they hold a median 12.5 ly, the largest near the start 55 ly.
+- Turnover of a culture alive now: 95% still there after 50 years, 82% after 200, 65% after 500, 38% after 1,000, 1% after 3,000.
+- The bot goes for everything the chart flags. It lands on somebody's home on a quarter to a third of jumps and on ruins on about 40%; ignoring signals (`--deaf`), 1% and 60%. Relics: 3 to 10 in 200 jumps, after halving the odds (`CIV.RELIC`) because flagged ruins can be hunted. A human will not chase every flag, so read these as upper limits.
+
+Known rough edges, deliberately left:
+
+- The inner disc is much busier with claimed space (about a tenth of systems inside 900 ly of the centre), because spreading cultures scale with star count. `REACH_PER` is the dial; scaling by something gentler than density is the other option.
+- Survey finds are fixed for all time and know nothing about people, so a find about life can sit oddly on a world with cities.
+- The end is a cliff: decline one year, ruins the next.
+- On the map, signal green is close to the ship's teal.
+- The tables are thin (two wordings per kind of place, a handful of bodies and habits). The owner said these get fleshed out later.
+- A dim line on the first meeting says dealing with them comes in a later build. Remove it in step 2.
+
+To ask the owner: is the starting cluster too busy or about right; does following signals make people too easy to find; are ruins common enough; is a 70-day scan right for a ruin; do the species sketches read well; are the green marks legible.
+
+Notes for step 2: terms attach where `meet` and `homes()` are. The emergency exit is the Mind taking the conn at 10% hull; keep it as one function that takes a cutoff, because the owner wants a smarter rule later: the nearest empty system is known, so the cutoff can be put where the drift that follows is painful but not catastrophic.
 
 ### Later slices, ideas held
 
@@ -113,20 +172,41 @@ Things to ask after the next play-test: is economy now worth choosing; is the hu
 
 - Integer hashing only. One substream per purpose. Append to `K`, never renumber.
 - Nothing derived is stored. The save holds what the player did; the galaxy is rebuilt from the seed.
-- A save is `State` with `v: 1`. Adding a field needs a default on load. Changing what a field means needs a version bump.
-- Adding an entry to `FEATURES` changes what the dice pick, so surveyed systems can change. Acceptable now; say so when it happens.
+- A save is `State` with `v: SAVE_VERSION` (now 2). Adding a field needs a default on load. Changing what a field means needs a version bump, which throws old voyages away; the owner has said that is fine during testing.
+- History is never stepped. Who is home is a function of (seed, system, year); keep it that way, so a save never has to hold a simulation.
+- Adding an entry to `FEATURES` changes what the dice pick, so surveyed systems can change. Acceptable now; say so when it happens. The same goes for the tables in `cultures.ts`: a new entry renames or redescribes cultures already met.
 - Fixed-width output stays within 42 columns (there is a test).
 
 ## How to work here
 
 - `npm run check`, `npm test`, `npm run build`, `npm run bot`. Node runs `.ts` directly.
 - **Build before committing page changes.** Pages serves `docs/index.html`, which is generated.
+- The page's text size is one line, `font-size: clamp(11px, 3.1vw, 14px)` on `body` in `src/web/page.html`: smallest, how it scales with screen width, largest. The owner asked for it a little smaller than first set (it was 12.5 to 15). The command box stays at 16px so phones do not zoom in when it is tapped.
 - Publish a dev build by republishing `dist/artifact.html` to the dev Artifact.
 - One branch per piece of work, a pull request to `main`, and the owner merges. Squash when the branch history is messy, merge commit when it is clean. After a squash, start the next branch from `main`.
 - **These sessions cannot push tags** (403). The owner creates them from GitHub's release page. Next is `v0.2.0`.
 - Do not force-push. A built-in safety check refuses `rm` with a glob after a `cd`; write to fresh paths instead.
 - The cloud environment `ClaudeSpaceFiction` allows `huggingface.co` and `us.aws.cdn.hf.co`, for the narration voice.
 
-## The video renderer
+## Media: concept art and the video renderer
 
-`video/` makes narrated walkthroughs; `video/README.md` explains it. Five tutorial chapters were made for the owner and then removed from the repo (recoverable from pull request #2). The chosen narrator is `am_michael`. A fresh container needs the fonts, `kokoro-onnx`, and the two model files again.
+Everything that is about the game rather than part of it lives in `media/`; `media/README.md` shows and explains it.
+
+### The two-screen phone concept (`media/concepts/`)
+
+The owner is thinking ahead to a more visual app, on a phone that folds open into one wide screen. Three passes of concept art were made on a private design canvas (an Artifact named "Lightspeed on the Duo"; find it in the artifact list). The third pass is the one the owner called right, bar small tweaks, and its three boards are saved as images. Nothing of it is built, and none of it should leak into the text prototype unasked. What the owner settled:
+
+- **Opened, it is one screen.** The star chart runs across the whole device. Whatever else is shown sits on top of the map, so there is no separate picture for the system.
+- **One bubble** of glass over the right half holds everything that is not the map: the system's name, the clock, the tab's content, the tabs.
+- **Three tabs**: Command (the terminal and log as they are today), Ship (condition, hold, refits), Ops (the system as a row of bodies, crews, work on offer, staying). Along the bottom of the bubble when open; down its right edge when the phone is folded.
+- **Only Command takes typed input.** Ops and Ship are buttons.
+- **Tapping a star** draws the course on the map and switches to Command, where the tap appears in the log as a `plot` with its output, and the burns are offered as buttons.
+- **The chart moves by hand** (pinch and drag): no zoom buttons and no information pane on the map.
+- **One clock**, in the bubble's top corner; tap to switch between aboard and outside.
+- **Glass over pixels**: the world stays chunky; controls are smooth glass that shows what is behind it at double pixel size instead of blurring it.
+
+How the images were made, in case more are wanted: the map was drawn from the real galaxy (default seed, the system Alder RN-989 inside the Neithi Expanse) by a throwaway script, the boards were written as HTML on the canvas, and the same HTML was rendered to PNG with Playwright. The scripts were not kept; the canvas has the boards. The ring for how far a hard burn reaches is invented, and would be a good small feature for the real chart.
+
+### The video renderer (`media/video/`)
+
+Makes narrated walkthroughs. Five tutorial chapters were made for the owner and then removed from the repo (recoverable from pull request #2). The chosen narrator is `am_michael`. A fresh container needs the fonts, `kokoro-onnx`, and the two model files again.

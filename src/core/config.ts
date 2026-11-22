@@ -125,6 +125,64 @@ export const TUNE = {
 } as const;
 
 /**
+ * Who lives out there, and for how long. Times in years, distances in ly.
+ *
+ * Time is cut into eras. In each era a system can raise at most one culture,
+ * and a culture's whole life fits inside its era, so two never overlap at one
+ * world. What they leave lasts a while longer and then is gone too.
+ */
+export const CIV = {
+  ERA: 8000,
+  /** Chance per era that the best kind of world (an ocean world round a quiet star) raises a culture. */
+  WORLD_RATE: 0.2,
+  /** Old clusters have had the time, and are busy. Young ones have not. */
+  OLD_CLUSTER: 6,
+  YOUNG_CLUSTER: 0.3,
+  /** How long a culture of one world lasts: median, log-normal spread, and limits. */
+  LIFE: 1200,
+  LIFE_SPREAD: 0.6,
+  LIFE_MIN: 150,
+  LIFE_MAX: 3200,
+  /** Ruins outlast their makers by this multiple of the makers' own span, within limits. Outposts leave less. */
+  RUIN: 1.5,
+  RUIN_MIN: 400,
+  RUIN_MAX: 4800,
+  RUIN_OUTPOST: 0.6,
+
+  /** A few cultures spread. One arises per this many field systems, per era. */
+  REACH_PER: 4000,
+  REACH_LIFE: 3000,
+  REACH_LIFE_SPREAD: 0.5,
+  REACH_LIFE_MIN: 800,
+  REACH_LIFE_MAX: 6400,
+  /** The furthest it would ever hold, ly: median, log-normal spread, and a hard cap. */
+  REACH_RADIUS: 14,
+  REACH_SPREAD: 0.8,
+  REACH_CAP: 240,
+  /** How fast its frontier moves, ly per year. */
+  REACH_SPEED: [0.01, 0.08],
+  /** Share of the systems inside it that carry an outpost. */
+  HOLD: 0.5,
+
+  /** How far a home world's radio carries, ly, by phase. Outposts are quieter; closed cultures quieter still. */
+  LOUD: { founding: 4, rising: 20, height: 45, decline: 25 },
+  LOUD_REACH: 1.6,
+  LOUD_OUTPOST: 8,
+  LOUD_CLOSED: 0.35,
+
+  /** Days to read a ruin with a deep scan, and what it is worth to the Archive. */
+  DIG_HOME: 70,
+  DIG_OUTPOST: 40,
+  RUIN_ARCHIVE: { home: 24, outpost: 10 },
+  /** Old ruins have less left in them. */
+  RUIN_OLD: 0.6,
+  /** Chance that a ruin still holds something worth carrying away. Kept low: the chart flags nearby ruins, so a navigator can hunt them. */
+  RELIC: { home: 0.12, outpost: 0.03 },
+  /** Archive credit for meeting a living culture for the first time. */
+  MEET_ARCHIVE: 8,
+} as const;
+
+/**
  * Refit tracks. Level 0 is the ship as launched.
  *
  * Engine: thrust in g. More thrust is more speed and less time under burn,

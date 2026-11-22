@@ -20,16 +20,18 @@ node tools/play.ts sweep ops  # run some commands and exit
 
 ## What is in this slice
 
-- **The loop.** `sweep` a system, assign crews (`scoop` fuel from giants, cut `ice` for the forward shield, `mine` materials, `survey`, deep `scan` oddities, `repair`), let days pass with `stay`, then `chart`, `plot` and `burn`.
+- **The loop.** `sweep` a system, assign crews (`scoop` fuel from giants, cut `ice` for the forward shield, `mine` materials, `survey`, deep `scan` oddities, `repair`), let days pass with `stay`, then `chart`, `plot` and `burn`. `look` shows the system and what each crew is doing; `ship` shows the ship and its refits.
 - **Two clocks.** Every trip costs time aboard and more time outside.
-- **Gas sets the speed.** In gas of density n the ship cruises at gamma = sqrt(1 + P / n), where P grows with engine thrust and hull grade. Thin gas is fast; clouds are walls for a young ship. `gas` shows the wider sky.
+- **Gas sets the speed.** In gas of density n the ship cruises at gamma = sqrt(1 + P / n), where P grows with engine thrust and hull grade. Thin gas is fast; clouds are walls for a young ship. `chart far` shows where it lies.
 - **Two ways to burn.** `burn` goes at full thrust. `burn eco` goes at a quarter: fuel use goes as thrust squared, so it is far cheaper, but it takes about twice as long and time under way wears the hull.
 - **A guided first visit.** On a new voyage the Mind explains each step once, then stops.
-- **Small maps.** In the browser, `chart` and `gas` draw a blocky little picture of the sky. A terminal shows the same map in characters.
+- **Charts at three zooms.** `chart close` is the nearest stars. `chart` is what stands out in a view four times wider: signals, things worth a deep scan, bright stars. `chart far` is the bright stars to steer by, four times wider again. Each draws a small map in characters and lists what it numbers, says which of them the tanks can reach, and says whose space you are in or near. `plot` takes a number from whichever chart was shown last, or a star's name, and says what the telescopes see there as well as what the trip costs.
 - **Refits.** Knowledge in the Archive unlocks them; materials and crew time pay for them.
 - **The Mind.** A written voice with its own tastes, a dissent it logs and later checks, and a habit of noticing how you leave places.
+- **Other people.** About one system in a hundred is somebody's home, more in the old cluster where the voyage starts. None of them are human. Each culture is born, rises, declines and ends; a few spread to hold the stars around them for a while. Their radio shows as `^` on the charts, as old as the light that carries it. Come back after a long haul and they may have changed, or be gone.
+- **Ruins and relics.** A culture that has ended leaves ruins for a few thousand years, and then nothing. The chart flags unread ruins close by, a sweep picks them out, and a deep scan says whose they were and now and then brings something back for the hold.
 
-Not here yet: civilisations and ruins tied to them, other ships and their invitations, the permanent waypoint systems, marks the navigator leaves behind, and transients.
+Not here yet: dealing with the people you meet (terms, tolls, trade, and what happens when you ignore them), other ships and their invitations, the permanent waypoint systems, marks the navigator leaves behind, and transients.
 
 ## How it is built
 
@@ -41,29 +43,34 @@ TypeScript, no framework, no runtime dependencies. The game core never touches t
 | `src/core/rng.ts` | Integer hashing; one substream per purpose |
 | `src/core/galaxy.ts` | Where systems are and how thick the gas is, generated per cell on demand |
 | `src/core/system.ts` | Stars, bodies and what a survey finds, as a pure function of seed and id |
-| `src/core/features.ts` | The catalogue of finds, with their text |
+| `src/core/features.ts` | The catalogue of natural oddities, with their text |
+| `src/core/civs.ts` | Who lives where and when: cultures, the space they hold, their ruins |
+| `src/core/cultures.ts` | The tables a culture is invented from: names, bodies, habits, what they leave |
 | `src/core/travel.ts` | Trip planning: both clocks, fuel and shield |
 | `src/core/mind.ts` | The Mind's lines and how one is chosen |
 | `src/core/state.ts` | What gets saved |
 | `src/core/game.ts` | The commands |
 | `src/web/` | The page |
-| `tools/` | Build script, terminal player, and the bot |
-| `video/` | A small renderer for narrated code-walkthrough videos |
+| `tools/` | Build script, terminal player, the bot, and the census of who is out there |
+| `media/` | Concept art for a later, more visual version, and a small renderer for narrated code-walkthrough videos |
 
-Nothing about the galaxy is stored. A save holds the ship, the clocks and what the navigator has seen; everything else is regenerated from the seed. The demo galaxy is a 6,000 light-year disc of three million systems; `radius` and `totalSystems` in `config.ts` are the only numbers to change to make it larger.
+Nothing about the galaxy is stored. A save holds the ship, the clocks and what the navigator has seen; everything else is regenerated from the seed. That includes history: who is home at a system in a given year is a function of the seed, the system and the year, so the galaxy can be asked about any date without ever being stepped through time. The demo galaxy is a 6,000 light-year disc of three million systems; `radius` and `totalSystems` in `config.ts` are the only numbers to change to make it larger.
 
 ## Working on it
 
 ```
 npm run check    # typecheck
-npm test         # determinism, calibration, physics, saves, layout width
+npm test         # determinism, calibration, physics, cultures, saves, layout width
 npm run build    # writes docs/index.html
-npm run bot      # a bot flies 150 jumps and reports pacing and repeated lines
+npm run bot      # a bot flies 150 jumps and reports pacing, repeated lines and who it met
 node tools/bot.ts --jumps 500 --seed 7 --transcript > flight.txt
+npm run census   # how many cultures, outposts and ruins there are, and how far apart
 ```
 
 `docs/index.html` is generated; edit `src/` and rebuild.
 
-## Videos
+## Media
 
-`video/` can turn a short script into a narrated video that quotes this repository's real code. It is there for making tutorials; see `video/README.md`.
+`media/` holds things about the game that are not the game. `media/concepts/` has concept art for a later version with more to look at: the same game as an app on a two-screen phone, with the star chart across the whole device and everything else in one pane of glass on top of it. `media/video/` can turn a short script into a narrated video that quotes this repository's real code, for making tutorials. `media/README.md` shows the pictures and explains both.
+
+![Concept art: the game as a phone app, opened like a book, with the star chart across both halves and a glass pane over the right half](media/concepts/duo-ops.png)

@@ -1,17 +1,17 @@
 /**
  * Turn a film script into a narrated video.
  *
- *   node video/render.ts example                     writes dist/video/example.mp4
- *   node video/render.ts example --voice bm_george   the same, in another voice
- *   node video/render.ts example --times             also print when each scene starts
- *   node video/render.ts example --stills 5,12       writes stills at those seconds instead
+ *   node media/video/render.ts example                     writes dist/video/example.mp4
+ *   node media/video/render.ts example --voice bm_george   the same, in another voice
+ *   node media/video/render.ts example --times             also print when each scene starts
+ *   node media/video/render.ts example --stills 5,12       writes stills at those seconds instead
  *
- * The name is a file in video/films. Steps: quote the real code, speak each
+ * The name is a file in media/video/films. Steps: quote the real code, speak each
  * sentence to a sound file, lay the sentences end to end to get the timing,
  * draw every frame in a headless browser, and let ffmpeg join pictures and sound.
  *
  * Needs on the machine: ffmpeg, the IBM Plex fonts, Playwright with Chromium,
- * and a voice: Kokoro (see video/speak.py) or, with --voice pico, pico2wave.
+ * and a voice: Kokoro (see media/video/speak.py) or, with --voice pico, pico2wave.
  */
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -19,7 +19,7 @@ import { once } from 'node:events';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { build } from 'esbuild';
-import { Game } from '../src/core/game.ts';
+import { Game } from '../../src/core/game.ts';
 import { resolveFilm } from './snippets.ts';
 import type { Film, TimedFilm, TimedScene } from './types.ts';
 
@@ -44,7 +44,7 @@ const SAY: [RegExp, string][] = [
 
 const args = process.argv.slice(2);
 const option = (name: string) => (args.includes(`--${name}`) ? args[args.indexOf(`--${name}`) + 1] : undefined);
-/** Which film: the name of a file in video/films. */
+/** Which film: the name of a file in media/video/films. */
 const name = args[0] && !args[0].startsWith('--') ? args[0] : 'example';
 /** The narrator: a Kokoro voice such as am_michael or bm_george, or "pico" for the older offline synthesiser. */
 const VOICE = option('voice') ?? 'am_michael';
@@ -87,7 +87,7 @@ function record(texts: string[]) {
   }
   const job = `${out}/voice/job.json`;
   writeFileSync(job, JSON.stringify({ voice: VOICE, speed: SPEED, items: missing.map((t) => ({ text: said(t), file: clipFile(t) })) }));
-  execFileSync('python3', ['video/speak.py', job], { stdio: 'inherit' });
+  execFileSync('python3', ['media/video/speak.py', job], { stdio: 'inherit' });
 }
 
 function load(text: string): Clip {
@@ -148,9 +148,9 @@ writeFileSync(`${out}/${name}.wav`, Buffer.concat([header, track]));
 
 // ---- 4. the page that draws it ----
 
-const bundle = await build({ entryPoints: ['video/player.ts'], bundle: true, format: 'iife', write: false, legalComments: 'none' });
+const bundle = await build({ entryPoints: ['media/video/player.ts'], bundle: true, format: 'iife', write: false, legalComments: 'none' });
 const page = `<!doctype html><html><head><meta charset="utf-8"><title>${name}</title>
-<style>${readFileSync('video/player.css', 'utf8')}</style></head><body><div id="frame"></div>
+<style>${readFileSync('media/video/player.css', 'utf8')}</style></head><body><div id="frame"></div>
 <script>window.FILM = ${JSON.stringify(timed).replaceAll('</', '<\\/')};</script>
 <script>${bundle.outputFiles[0].text.replaceAll('</script', '<\\/script')}</script></body></html>`;
 const pagePath = `${out}/${name}.html`;

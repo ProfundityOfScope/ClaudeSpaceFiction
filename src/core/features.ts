@@ -1,13 +1,19 @@
 /**
- * The catalogue of things a survey can turn up.
+ * The catalogue of things a survey can turn up: the oddities.
  *
- * Rarity runs 0 (common) to 3 (exceptional). A `deep` find is first seen as a
- * hint; a long deep scan of that body resolves it. `{b}` in the text is
- * replaced by the body's number, `{n}` by a small hashed integer.
+ * These are fixed for all time, so they are nearly all natural: a function of
+ * the kind of body and star. The few made things here are ones that can sit
+ * outside time, and they are kept very rare. Ruins are a different matter:
+ * they belong to a culture and fade (see civs.ts).
+ *
+ * Rarity runs 0 (common) to 3 (exceptional). A find with a `hint` is first
+ * seen as that hint; a long deep scan of the body resolves it. `{b}` in the
+ * text is replaced by the body's number, `{n}` by a small hashed integer.
  */
 import type { BodyKind, StarKind } from './system.ts';
+import type { RelicKind } from './cultures.ts';
 
-export type Category = 'geology' | 'dynamics' | 'stellar' | 'life' | 'relic';
+export type Category = 'geology' | 'dynamics' | 'stellar' | 'life' | 'artefact';
 
 export interface FeatureDef {
   id: string;
@@ -20,8 +26,8 @@ export interface FeatureDef {
   text: string;
   /** Present for deep finds: what the broad survey notices first. */
   hint?: string;
-  /** Something the Wrights bring aboard. */
-  relic?: string;
+  /** Something that can, now and then, be brought aboard from it. */
+  relic?: { what: string; kind: RelicKind; chance: number };
   /** Short name for the journal. */
   title: string;
 }
@@ -135,33 +141,27 @@ export const FEATURES: FeatureDef[] = [
     hint: "Oxygen in {b}'s spectrum, and a red edge where something absorbs the light.",
     text: 'A whole living world at {b}. Forest to the shoreline, reefs under it, something with wings above. Nobody is home. The Surveyors have stopped talking in the corridors.' }),
 
-  // ---- relics ----
-  f({ id: 'stone', title: 'worked stone', category: 'relic', rarity: 2, on: ['rocky', 'desert', 'dwarf'],
-    hint: "Straight lines on {b}'s surface, where geology does not make them.",
-    text: 'Worked stone on {b}. Foundations, a causeway, a quarry face. Nobody has been here for a long time.' }),
-  f({ id: 'probe', title: 'dead probe', category: 'relic', rarity: 2, on: ['rocky', 'gas', 'icegiant', 'belt', 'ice'],
+  // ---- made things that time does not reach ----
+  f({ id: 'probe', title: 'dead probe', category: 'artefact', rarity: 3, on: ['gas', 'icegiant', 'belt', 'ice'],
     hint: 'A small object in orbit at {b} with an albedo that is wrong for rock.',
-    text: "A probe, dead in orbit at {b}. Not ours. Its makers' script is not in the Archive. The Wrights have brought it aboard.",
-    relic: 'dead probe' }),
-  f({ id: 'scar', title: 'mined-out world', category: 'relic', rarity: 2, on: ['dwarf', 'belt', 'scorched'],
+    text: "A probe, dead in orbit at {b}. Not ours. Its makers' script is not in the Archive, and the pitting on its hull is too old to date.",
+    relic: { what: 'a dead probe', kind: 'device', chance: 0.35 } }),
+  f({ id: 'scar', title: 'mined-out world', category: 'artefact', rarity: 3, on: ['dwarf', 'belt', 'scorched'],
     hint: '{b} is missing mass it ought to have.',
-    text: '{b} was mined. Whole hemispheres taken down to the mantle, the tailings still in orbit. Whoever did it needed a great deal of metal.' }),
-  f({ id: 'beacon', title: 'silent beacon', category: 'relic', rarity: 2, on: ['comets', 'dwarf'],
+    text: '{b} was mined. Whole hemispheres taken down to the mantle, the tailings long since swept away. Whoever did it needed a great deal of metal, a very long time ago.' }),
+  f({ id: 'beacon', title: 'silent beacon', category: 'artefact', rarity: 3, on: ['comets', 'dwarf'],
     hint: 'A point source in {b} that keeps perfect time and says nothing else.',
-    text: 'A beacon in {b}, still counting. It stopped sending anything but the count about forty thousand years ago.',
-    relic: 'silent beacon' }),
-  f({ id: 'seawalls', title: 'drowned works', category: 'relic', rarity: 2, on: ['ocean'],
-    hint: 'Something on {b} reflects in straight lines.',
-    text: 'Sea walls on {b}, drowned to the top. Nobody has kept them for six thousand years.' }),
-  f({ id: 'vault', title: 'sealed vault', category: 'relic', rarity: 3, on: ['ice', 'dwarf'],
+    text: 'A beacon in {b}, still counting, far enough out that nothing has disturbed it. It stopped sending anything but the count about forty thousand years ago.',
+    relic: { what: 'the core of a silent beacon', kind: 'device', chance: 0.2 } }),
+  f({ id: 'vault', title: 'sealed vault', category: 'artefact', rarity: 3, on: ['ice', 'dwarf'],
     hint: "A void under {b}'s ice with square corners.",
     text: "A vault under the ice of {b}. Sealed, pressurised, and full of something's records. The Mind has been reading for a month and will not say much yet.",
-    relic: 'vault records' }),
-  f({ id: 'hulk', title: 'worldship hulk', category: 'relic', rarity: 3, on: ['belt', 'comets'],
+    relic: { what: 'records from a sealed vault', kind: 'records', chance: 0.4 } }),
+  f({ id: 'hulk', title: 'worldship hulk', category: 'artefact', rarity: 3, on: ['belt', 'comets'],
     hint: "A body in {b} with a hull's density.",
     text: 'A ship, in {b}. A worldship, or a third of one, older than anything in the Archive. Its Mind is long gone. The Wrights walk its decks without speaking.',
-    relic: 'hull fragment' }),
-  f({ id: 'ringworks', title: 'engineered rings', category: 'relic', rarity: 3, on: ['gas', 'icegiant'],
+    relic: { what: 'a fragment of a worldship hull', kind: 'device', chance: 0.3 } }),
+  f({ id: 'ringworks', title: 'engineered rings', category: 'artefact', rarity: 3, on: ['gas', 'icegiant'],
     hint: "{b}'s rings are too clean. The gaps are evenly spaced.",
     text: "{b}'s rings were engineered: sorted by composition, braided, and left running. The machinery is gone. The sorting has held for half a million years." }),
 ];

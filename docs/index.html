@@ -61,7 +61,7 @@ body {
   background: var(--bg);
   color: var(--ink);
   font-family: var(--mono);
-  font-size: clamp(12.5px, 3.45vw, 15px);
+  font-size: clamp(11px, 3.1vw, 14px);
   line-height: 1.5;
   font-variant-numeric: tabular-nums;
 }
@@ -102,10 +102,6 @@ body {
 #log { display: flex; flex-direction: column; gap: 2px; }
 .o { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .o.pre { white-space: pre; overflow-x: auto; line-height: 1.32; padding-block: 4px; flex: none; }
-/* A map is drawn one cell to a pixel and scaled up unsmoothed, so it stays as blocky as the text around it. */
-.o.map { margin: 0; padding-block: 6px 2px; display: flex; flex-direction: column; gap: 4px; flex: none; }
-.o.map canvas { display: block; width: min(100%, 19rem); aspect-ratio: 1; image-rendering: crisp-edges; image-rendering: pixelated; border: 1px solid var(--line); border-radius: 2px; }
-.o.map figcaption { color: var(--dim); }
 .o.echo { color: var(--dim); margin-top: 12px; }
 .o.mind { color: var(--mind); }
 .o.head { font-weight: 600; letter-spacing: .05em; margin-top: 4px; }
@@ -290,6 +286,53 @@ input, textarea {
     /** Bonus multiplier the first time a kind of thing is logged. */
     FIRST_BONUS: 1.5
   };
+  var CIV = {
+    ERA: 8e3,
+    /** Chance per era that the best kind of world (an ocean world round a quiet star) raises a culture. */
+    WORLD_RATE: 0.2,
+    /** Old clusters have had the time, and are busy. Young ones have not. */
+    OLD_CLUSTER: 6,
+    YOUNG_CLUSTER: 0.3,
+    /** How long a culture of one world lasts: median, log-normal spread, and limits. */
+    LIFE: 1200,
+    LIFE_SPREAD: 0.6,
+    LIFE_MIN: 150,
+    LIFE_MAX: 3200,
+    /** Ruins outlast their makers by this multiple of the makers' own span, within limits. Outposts leave less. */
+    RUIN: 1.5,
+    RUIN_MIN: 400,
+    RUIN_MAX: 4800,
+    RUIN_OUTPOST: 0.6,
+    /** A few cultures spread. One arises per this many field systems, per era. */
+    REACH_PER: 4e3,
+    REACH_LIFE: 3e3,
+    REACH_LIFE_SPREAD: 0.5,
+    REACH_LIFE_MIN: 800,
+    REACH_LIFE_MAX: 6400,
+    /** The furthest it would ever hold, ly: median, log-normal spread, and a hard cap. */
+    REACH_RADIUS: 14,
+    REACH_SPREAD: 0.8,
+    REACH_CAP: 240,
+    /** How fast its frontier moves, ly per year. */
+    REACH_SPEED: [0.01, 0.08],
+    /** Share of the systems inside it that carry an outpost. */
+    HOLD: 0.5,
+    /** How far a home world's radio carries, ly, by phase. Outposts are quieter; closed cultures quieter still. */
+    LOUD: { founding: 4, rising: 20, height: 45, decline: 25 },
+    LOUD_REACH: 1.6,
+    LOUD_OUTPOST: 8,
+    LOUD_CLOSED: 0.35,
+    /** Days to read a ruin with a deep scan, and what it is worth to the Archive. */
+    DIG_HOME: 70,
+    DIG_OUTPOST: 40,
+    RUIN_ARCHIVE: { home: 24, outpost: 10 },
+    /** Old ruins have less left in them. */
+    RUIN_OLD: 0.6,
+    /** Chance that a ruin still holds something worth carrying away. Kept low: the chart flags nearby ruins, so a navigator can hunt them. */
+    RELIC: { home: 0.12, outpost: 0.03 },
+    /** Archive credit for meeting a living culture for the first time. */
+    MEET_ARCHIVE: 8
+  };
   var REFITS = {
     engine: { label: "Engine", unit: "g", levels: [20, 32, 50, 80, 128, 200, 320, 500, 800, 1300, 2e3], archive: 120 },
     hull: { label: "Hull", unit: "", levels: [1, 1.6, 2.5, 4, 6.4, 10, 16, 25, 40, 64, 100], archive: 150 },
@@ -321,7 +364,13 @@ input, textarea {
     MIND: 10,
     SECTOR: 11,
     NOISE: 12,
-    START: 13
+    START: 13,
+    WORLD: 14,
+    REACH: 15,
+    CULTURE: 16,
+    SPECIES: 17,
+    HOLD: 18,
+    RELIC: 19
   };
   function fmix(h) {
     h ^= h >>> 16;
@@ -851,6 +900,34 @@ input, textarea {
       out.sort((a, b) => a.dist - b.dist);
       return out;
     }
+    /** Every system within `radius` of a point, whatever its brightness, nearest first. */
+    within(x, y, radius) {
+      const { strata } = this.cfg;
+      const out = [];
+      for (let s = 0; s < strata.length; s++) {
+        const size = strata[s].cell;
+        for (let cx = Math.floor((x - radius) / size); cx <= Math.floor((x + radius) / size); cx++) {
+          for (let cy = Math.floor((y - radius) / size); cy <= Math.floor((y + radius) / size); cy++) {
+            for (const ref of this.fieldCell(s, cx, cy)) {
+              const dist = Math.hypot(ref.x - x, ref.y - y);
+              if (dist <= radius) out.push({ ref, dist });
+            }
+          }
+        }
+      }
+      const far = radius + 150;
+      for (const { cluster, ccx, ccy, i } of this.clustersIn(x - far, y - far, x + far, y + far)) {
+        if (Math.hypot(cluster.x - x, cluster.y - y) - 5 * cluster.sigma > radius) continue;
+        for (let s = 0; s < strata.length; s++) {
+          for (const ref of this.clusterMembers(ccx, ccy, i, s)) {
+            const dist = Math.hypot(ref.x - x, ref.y - y);
+            if (dist <= radius) out.push({ ref, dist });
+          }
+        }
+      }
+      out.sort((a, b) => a.dist - b.dist);
+      return out;
+    }
     /** Find a system again from its id. */
     ref(id) {
       const parts = id.slice(1).split(".").map(Number);
@@ -1278,78 +1355,60 @@ input, textarea {
       hint: "Oxygen in {b}'s spectrum, and a red edge where something absorbs the light.",
       text: "A whole living world at {b}. Forest to the shoreline, reefs under it, something with wings above. Nobody is home. The Surveyors have stopped talking in the corridors."
     }),
-    // ---- relics ----
-    f({
-      id: "stone",
-      title: "worked stone",
-      category: "relic",
-      rarity: 2,
-      on: ["rocky", "desert", "dwarf"],
-      hint: "Straight lines on {b}'s surface, where geology does not make them.",
-      text: "Worked stone on {b}. Foundations, a causeway, a quarry face. Nobody has been here for a long time."
-    }),
+    // ---- made things that time does not reach ----
     f({
       id: "probe",
       title: "dead probe",
-      category: "relic",
-      rarity: 2,
-      on: ["rocky", "gas", "icegiant", "belt", "ice"],
+      category: "artefact",
+      rarity: 3,
+      on: ["gas", "icegiant", "belt", "ice"],
       hint: "A small object in orbit at {b} with an albedo that is wrong for rock.",
-      text: "A probe, dead in orbit at {b}. Not ours. Its makers' script is not in the Archive. The Wrights have brought it aboard.",
-      relic: "dead probe"
+      text: "A probe, dead in orbit at {b}. Not ours. Its makers' script is not in the Archive, and the pitting on its hull is too old to date.",
+      relic: { what: "a dead probe", kind: "device", chance: 0.35 }
     }),
     f({
       id: "scar",
       title: "mined-out world",
-      category: "relic",
-      rarity: 2,
+      category: "artefact",
+      rarity: 3,
       on: ["dwarf", "belt", "scorched"],
       hint: "{b} is missing mass it ought to have.",
-      text: "{b} was mined. Whole hemispheres taken down to the mantle, the tailings still in orbit. Whoever did it needed a great deal of metal."
+      text: "{b} was mined. Whole hemispheres taken down to the mantle, the tailings long since swept away. Whoever did it needed a great deal of metal, a very long time ago."
     }),
     f({
       id: "beacon",
       title: "silent beacon",
-      category: "relic",
-      rarity: 2,
+      category: "artefact",
+      rarity: 3,
       on: ["comets", "dwarf"],
       hint: "A point source in {b} that keeps perfect time and says nothing else.",
-      text: "A beacon in {b}, still counting. It stopped sending anything but the count about forty thousand years ago.",
-      relic: "silent beacon"
-    }),
-    f({
-      id: "seawalls",
-      title: "drowned works",
-      category: "relic",
-      rarity: 2,
-      on: ["ocean"],
-      hint: "Something on {b} reflects in straight lines.",
-      text: "Sea walls on {b}, drowned to the top. Nobody has kept them for six thousand years."
+      text: "A beacon in {b}, still counting, far enough out that nothing has disturbed it. It stopped sending anything but the count about forty thousand years ago.",
+      relic: { what: "the core of a silent beacon", kind: "device", chance: 0.2 }
     }),
     f({
       id: "vault",
       title: "sealed vault",
-      category: "relic",
+      category: "artefact",
       rarity: 3,
       on: ["ice", "dwarf"],
       hint: "A void under {b}'s ice with square corners.",
       text: "A vault under the ice of {b}. Sealed, pressurised, and full of something's records. The Mind has been reading for a month and will not say much yet.",
-      relic: "vault records"
+      relic: { what: "records from a sealed vault", kind: "records", chance: 0.4 }
     }),
     f({
       id: "hulk",
       title: "worldship hulk",
-      category: "relic",
+      category: "artefact",
       rarity: 3,
       on: ["belt", "comets"],
       hint: "A body in {b} with a hull's density.",
       text: "A ship, in {b}. A worldship, or a third of one, older than anything in the Archive. Its Mind is long gone. The Wrights walk its decks without speaking.",
-      relic: "hull fragment"
+      relic: { what: "a fragment of a worldship hull", kind: "device", chance: 0.3 }
     }),
     f({
       id: "ringworks",
       title: "engineered rings",
-      category: "relic",
+      category: "artefact",
       rarity: 3,
       on: ["gas", "icegiant"],
       hint: "{b}'s rings are too clean. The gaps are evenly spaced.",
@@ -1722,6 +1781,587 @@ input, textarea {
     return sys.companion ? `${s} with a ${STARS[sys.companion].name} companion` : s;
   }
 
+  // src/core/cultures.ts
+  function temperOf(g) {
+    if (g.bold > 0.66 && g.open < 0.4) return "hostile";
+    if (g.bold > 0.6 && g.open >= 0.4) return "proud";
+    if (g.open > 0.62) return "welcoming";
+    if (g.open < 0.3) return "reclusive";
+    return "wary";
+  }
+  var NAME_A = [
+    "Il",
+    "Ke",
+    "Or",
+    "Tha",
+    "Sel",
+    "Mi",
+    "Zu",
+    "Ar",
+    "El",
+    "Ny",
+    "Qu",
+    "Ix",
+    "Bel",
+    "Cor",
+    "Dra",
+    "Eri",
+    "Fen",
+    "Hy",
+    "Jo",
+    "Ka",
+    "Lu",
+    "Mar",
+    "Ne",
+    "Os",
+    "Pra",
+    "Ro",
+    "Sy",
+    "Tu",
+    "Ul",
+    "Vel",
+    "Xa",
+    "Yr",
+    "Ze",
+    "Ash",
+    "Om",
+    "Ir",
+    "Cas",
+    "Dhu",
+    "Va",
+    "Ghe"
+  ];
+  var NAME_B = ["ra", "li", "no", "the", "mi", "su", "ta", "ve", "xi", "lo", "dra", "ke", "sha", "ru", "an", "or", "en", "ya", "ul", "ith", "ma"];
+  var NAME_C = ["n", "s", "r", "th", "x", "a", "is", "os", "um", "ar", "el", "on", "ia", "e", "ak", "ix", "i"];
+  function cultureName(rng) {
+    return rng.pick(NAME_A) + (rng.chance(0.65) ? rng.pick(NAME_B) : "") + rng.pick(NAME_C);
+  }
+  var POLITY = {
+    welcoming: ["League", "Concord", "Compact", "Exchange"],
+    proud: ["Ascendancy", "Mandate", "Sovereignty"],
+    wary: ["Reach", "Expanse", "Holdings"],
+    reclusive: ["Communion", "Covenant", "Kindred"],
+    hostile: ["Dominion", "Hegemony", "Warhost"]
+  };
+  function polityWord(temper, rng) {
+    return rng.pick(POLITY[temper]);
+  }
+  var FORM = {
+    ocean: [
+      "aquatic and sightless, building in coral they grow to order",
+      "broad, slow swimmers that think in shoals",
+      "tide-pool engineers no longer than a hand",
+      "armoured bottom-walkers, older as a kind than their sea"
+    ],
+    rocky: [
+      "long-limbed climbers",
+      "six-legged grazers that came late to fire",
+      "burrowing colonies, a thousand small bodies to a mind",
+      "armoured and unhurried"
+    ],
+    desert: ["burrowers who surface only at night", "tall, dry-skinned walkers", "light-boned gliders of the canyon winds"],
+    ice: ["filter-feeders under the ice, who sing through the water", "round, furred, and warm-blooded to a fault"],
+    gas: ["moon-dwellers, small and quick, at home in low gravity", "vacuum-hardened, slow, grown from a moon they hollowed out"]
+  };
+  var FORM_ANY = ["radial, many-armed, with no front or back", "paired: two unlike bodies to each person"];
+  var VOICE = [
+    "They speak in colour.",
+    "They speak in slow radio pulses, and expect patience.",
+    "They speak by scent, which translates badly.",
+    "They drum.",
+    "They speak all at once and mean the sum.",
+    "They write everything down and say very little.",
+    "They speak in questions only."
+  ];
+  var HABIT = [
+    "They count in twelves.",
+    "They never name their dead.",
+    "They trade only at local night.",
+    "They consider questions rude and answers generous.",
+    "They keep no maps, only itineraries.",
+    "They are older than their own records, and know it.",
+    "They bury nothing.",
+    "They apologise before disagreeing.",
+    "They do not hurry, as a matter of law.",
+    "They keep one day in nine silent."
+  ];
+  function speciesSketch(homeBody, rng) {
+    const forms = [...FORM[homeBody] ?? [], ...FORM_ANY];
+    const form = rng.pick(forms);
+    return `${form.charAt(0).toUpperCase()}${form.slice(1)}. ${rng.pick(VOICE)} ${rng.pick(HABIT)}`;
+  }
+  var PLACE = {
+    star: "orbit",
+    gas: "orbit",
+    icegiant: "orbit",
+    belt: "small",
+    comets: "small",
+    dwarf: "surface",
+    scorched: "surface",
+    rocky: "surface",
+    desert: "surface",
+    ocean: "surface",
+    ice: "surface"
+  };
+  var HOME_TEXT = {
+    ocean: ["lights along every coast, and traffic on the water", "floating cities, and wakes between them"],
+    rocky: ["cities on the night side, and roads between them", "a web of lit roads, and smoke over the plains"],
+    desert: ["cities strung along the canyons, lit at night", "green lines across the dust, and towns where they cross"],
+    ice: ["heat leaking through the ice in regular patterns", "lit domes on the ice, and warm water under them"],
+    gas: ["cities on the moons, and tugs between them"]
+  };
+  var OUTPOST_TEXT = {
+    orbit: ["a station in orbit, and tugs among the moons", "a ring station, lit, with ships alongside"],
+    small: ["yards and tailings, and a steady coming and going", "a depot, lit and busy"],
+    surface: ["a walled port and a landing field", "domes, a landing grid, and one long road"]
+  };
+  var RUIN_HINT = {
+    orbit: ["A dark object in orbit at {b}, too regular for a moon.", "Something in orbit at {b} with an albedo that is wrong for rock."],
+    small: ["Bodies in {b} cut along flat planes.", "A point in {b} that reflects like metal."],
+    surface: ["Straight lines on {b}'s surface, where geology does not make them.", "Something on {b} reflects in straight lines."]
+  };
+  var HOME_RUIN = {
+    ocean: ["Sea walls of the {who} on {b}, drowned to the top.", "Harbour works of the {who} on {b}, silted and breached."],
+    rocky: [
+      "Worked stone of the {who} on {b}: foundations, a causeway, a quarry face.",
+      "A city of the {who} on {b}, roofless, its streets still on their grid."
+    ],
+    desert: ["Cisterns and wind-towers of the {who} on {b}, half under the dunes.", "Terraces of the {who} cut into the cliffs on {b}."],
+    ice: ["Habitats of the {who} under the ice of {b}, their warmth long gone."],
+    gas: ["Cities of the {who} on the moons of {b}, open to vacuum."]
+  };
+  var OUTPOST_RUIN = {
+    orbit: ["A station of the {who} in orbit at {b}, dark and slowly tumbling."],
+    small: ["Slipways and tailings of the {who} in {b}.", "A depot of the {who} in {b}: tanks, a landing grid, tracks that lead nowhere now."],
+    surface: ["An outpost of the {who} on {b}: a landing grid, empty tanks, sealed halls.", "A walled port of the {who} on {b}, its field cracked by frost."]
+  };
+  var choose = (list, n) => list[n % list.length];
+  function settledText(kind, home, n) {
+    return choose(home && HOME_TEXT[kind] || OUTPOST_TEXT[PLACE[kind]], n);
+  }
+  function ruinHint(kind, n) {
+    return choose(RUIN_HINT[PLACE[kind]], n);
+  }
+  function ruinText(kind, home, n) {
+    return choose(home && HOME_RUIN[kind] || OUTPOST_RUIN[PLACE[kind]], n);
+  }
+  var RELICS = {
+    records: ["a case of tablets", "a memory lattice", "star charts on beaten metal", "a ledger nobody can yet read"],
+    device: ["a tool nobody can name", "a sealed mechanism, still warm", "a lens ground for eyes unlike ours"],
+    art: ["a carved panel", "a set of bells", "a figure with too many hands"],
+    sacred: ["a reliquary", "a funerary mask", "a lamp made to be carried in procession"],
+    arms: ["a ceremonial blade", "an inert warhead casing", "a shield boss, scored"]
+  };
+  function relicFrom(genes, rng) {
+    const kind = rng.weighted({
+      records: 2 + 2 * genes.open,
+      device: 2,
+      art: 1.5,
+      sacred: 1 + 3 * genes.bound,
+      arms: 0.5 + 3 * genes.bold
+    });
+    return { what: rng.pick(RELICS[kind]), kind };
+  }
+  function relicLabel(relic) {
+    return relic.of ? `${relic.what} of the ${relic.of}` : `${relic.what}, makers unknown`;
+  }
+
+  // src/core/civs.ts
+  var isLiving = (phase) => phase !== "ruins" && phase !== "old ruins";
+  var CRADLE_BODY = { ocean: 1, rocky: 0.5, desert: 0.4, ice: 0.3 };
+  var CRADLE_STAR = { G: 1, K: 1, F: 0.8, M: 0.6, SG: 0.4, A: 0.15, BD: 0.1 };
+  var GAS_MOONS = 4;
+  var OUTPOST_BODY = {
+    star: 0,
+    belt: 3,
+    dwarf: 3,
+    gas: 2,
+    icegiant: 2,
+    ice: 2,
+    rocky: 2,
+    desert: 2,
+    ocean: 2,
+    scorched: 1,
+    comets: 1
+  };
+  var clamp2 = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
+  var unit = (...keys) => mix(...keys) / 4294967296;
+  function cradle(sys) {
+    const star = CRADLE_STAR[sys.star] ?? 0;
+    if (!star) return null;
+    let body = -1;
+    let best = 0;
+    for (const b of sys.bodies) {
+      const w = b.kind === "gas" ? b.moons >= GAS_MOONS ? 0.2 : 0 : CRADLE_BODY[b.kind] ?? 0;
+      if (w > best) {
+        best = w;
+        body = b.n;
+      }
+    }
+    return body < 0 ? null : { body, suit: best * star };
+  }
+  function ruinSpan(stood) {
+    return clamp2(CIV.RUIN * stood, CIV.RUIN_MIN, CIV.RUIN_MAX);
+  }
+  function phaseOf(c, year) {
+    const age = year - c.born;
+    if (age < 0) return null;
+    const f2 = age / c.life;
+    if (f2 < 0.1) return "founding";
+    if (f2 < 0.4) return "rising";
+    if (f2 < 0.75) return "height";
+    if (f2 < 1) return "decline";
+    const gone = (age - c.life) / c.ruin;
+    return gone < 0.4 ? "ruins" : gone < 1 ? "old ruins" : null;
+  }
+  function frontier(c, year) {
+    if (!c.reach) return 0;
+    const start = c.born + 0.15 * c.life;
+    const turn = c.born + 0.75 * c.life;
+    const end = c.born + c.life;
+    if (year < start || year >= end) return 0;
+    const peak = Math.min(c.reach.radius, c.reach.speed * (turn - start));
+    if (year < turn) return Math.min(peak, c.reach.speed * (year - start));
+    return peak * (1 - 0.75 * (year - turn) / (end - turn));
+  }
+  function tenure(c, d) {
+    if (!c.reach) return null;
+    const start = c.born + 0.15 * c.life;
+    const turn = c.born + 0.75 * c.life;
+    const end = c.born + c.life;
+    const peak = Math.min(c.reach.radius, c.reach.speed * (turn - start));
+    if (d > peak) return null;
+    const share = d / peak;
+    return [start + d / c.reach.speed, share <= 0.25 ? end : turn + (1 - share) / 0.75 * (end - turn)];
+  }
+  function loudness(site) {
+    if (!site.alive) return 0;
+    const { culture } = site;
+    const base = site.kind === "home" ? CIV.LOUD[site.phase] * (culture.reach ? CIV.LOUD_REACH : 1) : CIV.LOUD_OUTPOST;
+    return base * (culture.genes.open < 0.3 ? CIV.LOUD_CLOSED : 1);
+  }
+  var CACHE_LIMIT2 = 2e4;
+  var Cultures = class {
+    /** `lookup` lets a caller share its own cache of generated systems. */
+    constructor(galaxy, lookup) {
+      __publicField(this, "galaxy");
+      __publicField(this, "seed");
+      __publicField(this, "lookup");
+      __publicField(this, "reachCache", /* @__PURE__ */ new Map());
+      __publicField(this, "worldCache", /* @__PURE__ */ new Map());
+      this.galaxy = galaxy;
+      this.seed = galaxy.cfg.seed;
+      const own = /* @__PURE__ */ new Map();
+      this.lookup = lookup ?? ((ref) => {
+        let sys = own.get(ref.id);
+        if (!sys) {
+          if (own.size > CACHE_LIMIT2) own.clear();
+          own.set(ref.id, sys = generateSystem(galaxy, ref));
+        }
+        return sys;
+      });
+    }
+    system(ref) {
+      return this.lookup(ref);
+    }
+    identity(id, home, body, born, life, reach) {
+      const rng = new Stream(this.seed, K.CULTURE, strHash(id));
+      const name = cultureName(rng);
+      const genes = { open: rng.next(), bold: rng.next(), bound: reach ? rng.range(0.4, 1) : rng.next() };
+      const temper = temperOf(genes);
+      const sketch = speciesSketch(home.bodies[body].kind, new Stream(this.seed, K.SPECIES, strHash(home.ref.id)));
+      const title = reach ? `the ${name} ${polityWord(temper, rng)}` : `the ${name}`;
+      return { id, name, title, genes, temper, sketch, home: home.ref, homeBody: body, born, life, ruin: ruinSpan(life), reach };
+    }
+    // ---- cultures that spread ---------------------------------------------
+    /** The spreading cultures that arise in one coarse cell in one era. */
+    reachesIn(ccx, ccy, era) {
+      const key = `${ccx},${ccy},${era}`;
+      const hit = this.reachCache.get(key);
+      if (hit) return hit;
+      const { galaxy, seed } = this;
+      const cc = galaxy.cfg.coarse;
+      const mx = (ccx + 0.5) * cc;
+      const my = (ccy + 0.5) * cc;
+      const out = [];
+      const begins = era * CIV.ERA + this.cellOffset(ccx, ccy);
+      const count = new Stream(seed, K.REACH, ccx, ccy, era).poisson(galaxy.density(mx, my) * cc * cc / CIV.REACH_PER);
+      for (let i = 0; i < count; i++) {
+        const rng = new Stream(seed, K.REACH, ccx, ccy, era, i + 1);
+        let x = (ccx + rng.next()) * cc;
+        let y = (ccy + rng.next()) * cc;
+        const clusters = galaxy.clustersIn(mx, my, mx, my);
+        if (clusters.length && rng.chance(0.3)) {
+          const { cluster } = rng.pick(clusters);
+          x = cluster.x + 0.7 * cluster.sigma * rng.normal();
+          y = cluster.y + 0.7 * cluster.sigma * rng.normal();
+        }
+        const life = clamp2(CIV.REACH_LIFE * Math.exp(CIV.REACH_LIFE_SPREAD * rng.normal()), CIV.REACH_LIFE_MIN, CIV.REACH_LIFE_MAX);
+        const born = begins + rng.next() * (CIV.ERA - life);
+        const radius = Math.min(CIV.REACH_CAP, CIV.REACH_RADIUS * Math.exp(CIV.REACH_SPREAD * rng.normal()));
+        const speed = rng.range(CIV.REACH_SPEED[0], CIV.REACH_SPEED[1]);
+        for (const { ref } of galaxy.within(x, y, 15)) {
+          if (ref.stratum > 1 || out.some((c) => c.home.id === ref.id)) continue;
+          const sys = this.system(ref);
+          const host = cradle(sys);
+          if (!host || this.worldsDuring(sys, born, born + life).length) continue;
+          out.push(this.identity(`R${era}:${ccx}.${ccy}.${i}`, sys, host.body, born, life, { radius, speed }));
+          break;
+        }
+      }
+      if (this.reachCache.size > CACHE_LIMIT2) this.reachCache.clear();
+      this.reachCache.set(key, out);
+      return out;
+    }
+    /**
+     * Spreading cultures that could matter at a point in a given year: those of
+     * its coarse cell and the eight around it, from each cell's current era and
+     * the one before (ruins never outlast the era after their makers').
+     */
+    reachesNear(x, y, year) {
+      const cc = this.galaxy.cfg.coarse;
+      const cx = Math.floor(x / cc);
+      const cy = Math.floor(y / cc);
+      const out = [];
+      for (let i = cx - 1; i <= cx + 1; i++) {
+        for (let j = cy - 1; j <= cy + 1; j++) {
+          const era = Math.floor((year - this.cellOffset(i, j)) / CIV.ERA);
+          for (const c of this.reachesIn(i, j, era)) out.push(c);
+          for (const c of this.reachesIn(i, j, era - 1)) out.push(c);
+        }
+      }
+      return out;
+    }
+    /** Where in its own era-count a coarse cell, or a system, stands at year 0. */
+    cellOffset(ccx, ccy) {
+      return unit(this.seed, K.REACH, ccx, ccy) * CIV.ERA;
+    }
+    systemOffset(sys) {
+      return unit(this.seed, K.WORLD, strHash(sys.ref.id)) * CIV.ERA;
+    }
+    // ---- cultures of one world --------------------------------------------
+    /** The culture a system raises in one of its eras, if it raises one. */
+    worldIn(sys, era) {
+      const key = `${sys.ref.id}@${era}`;
+      const hit = this.worldCache.get(key);
+      if (hit !== void 0) return hit;
+      let out = null;
+      const host = cradle(sys);
+      if (host) {
+        const rng = new Stream(this.seed, K.WORLD, strHash(sys.ref.id), era);
+        const setting = sys.ref.cluster ? sys.ref.cluster.old ? CIV.OLD_CLUSTER : CIV.YOUNG_CLUSTER : 1;
+        if (rng.chance(Math.min(0.95, CIV.WORLD_RATE * host.suit * setting))) {
+          const life = clamp2(CIV.LIFE * Math.exp(CIV.LIFE_SPREAD * rng.normal()), CIV.LIFE_MIN, CIV.LIFE_MAX);
+          const born = era * CIV.ERA + this.systemOffset(sys) + rng.next() * (CIV.ERA - life);
+          out = this.identity(`W${era}:${sys.ref.id}`, sys, host.body, born, life);
+        }
+      }
+      if (this.worldCache.size > CACHE_LIMIT2) this.worldCache.clear();
+      this.worldCache.set(key, out);
+      return out;
+    }
+    /** The system's own cultures of the era a year falls in, and of the era before. */
+    worldsAt(sys, year) {
+      const era = Math.floor((year - this.systemOffset(sys)) / CIV.ERA);
+      const out = [];
+      for (const e of [era, era - 1]) {
+        const c = this.worldIn(sys, e);
+        if (c) out.push(c);
+      }
+      return out;
+    }
+    /** The system's own cultures alive at any time between two years. */
+    worldsDuring(sys, from, to) {
+      const seen = /* @__PURE__ */ new Set();
+      for (const year of [from, to]) {
+        for (const c of this.worldsAt(sys, year)) if (c.born < to && c.born + c.life > from) seen.add(c);
+      }
+      return [...seen];
+    }
+    // ---- questions ----------------------------------------------------------
+    /** The body a spreading culture would put an outpost on here, or -1 if it holds nothing here. */
+    outpostBody(c, sys) {
+      const h = strHash(sys.ref.id);
+      const k = strHash(c.id);
+      if (unit(this.seed, K.HOLD, k, h) >= CIV.HOLD) return -1;
+      let total = 0;
+      for (const b of sys.bodies) total += OUTPOST_BODY[b.kind];
+      if (!total) return -1;
+      let x = unit(this.seed, K.HOLD, k, h, 1) * total;
+      for (const b of sys.bodies) {
+        x -= OUTPOST_BODY[b.kind];
+        if (x < 0) return b.n;
+      }
+      return -1;
+    }
+    /** Does a spreading culture have something living at a system in a given year: its home, or an outpost? */
+    holds(c, sys, year) {
+      if (!c.reach || year < c.born || year >= c.born + c.life) return false;
+      if (c.home.id === sys.ref.id) return true;
+      const held = tenure(c, Math.hypot(c.home.x - sys.ref.x, c.home.y - sys.ref.y));
+      return held !== null && year >= held[0] && year < held[1] && this.outpostBody(c, sys) >= 0;
+    }
+    /** Who is at a system in a given year: the living, what the dead left, and whose space it is. */
+    presence(sys, year) {
+      const { x, y, id } = sys.ref;
+      const sites = [];
+      const claims = [];
+      const home = (c) => {
+        const phase = phaseOf(c, year);
+        if (!phase) return;
+        const alive = isLiving(phase);
+        sites.push({ culture: c, body: c.homeBody, kind: "home", phase, alive, since: alive ? c.born : c.born + c.life });
+      };
+      for (const world of this.worldsAt(sys, year)) home(world);
+      for (const c of this.reachesNear(x, y, year)) {
+        if (c.home.id === id) {
+          home(c);
+          continue;
+        }
+        const d = Math.hypot(c.home.x - x, c.home.y - y);
+        if (d > c.reach.radius) continue;
+        if (d <= frontier(c, year)) claims.push(c);
+        const held = tenure(c, d);
+        if (!held || year < held[0]) continue;
+        const body = this.outpostBody(c, sys);
+        if (body < 0) continue;
+        if (year < held[1]) {
+          sites.push({ culture: c, body, kind: "outpost", phase: phaseOf(c, year), alive: true, since: held[0] });
+          continue;
+        }
+        const gone = (year - held[1]) / (CIV.RUIN_OUTPOST * ruinSpan(held[1] - held[0]));
+        if (gone < 1) sites.push({ culture: c, body, kind: "outpost", phase: gone < 0.4 ? "ruins" : "old ruins", alive: false, since: held[1] });
+      }
+      sites.sort((a, b) => Number(b.alive) - Number(a.alive) || (a.alive ? Number(b.kind === "home") - Number(a.kind === "home") : b.since - a.since));
+      return { sites, claims };
+    }
+    /**
+     * What the light shows from `dist` ly away: the loudest living site whose
+     * radio carries that far. The light is `dist` years old, so this is who was
+     * there when it left.
+     */
+    heard(sys, year, dist) {
+      let best = null;
+      let reach = 0;
+      for (const site of this.presence(sys, year - dist).sites) {
+        const loud = loudness(site);
+        if (loud >= dist && loud > reach) {
+          best = site;
+          reach = loud;
+        }
+      }
+      return best;
+    }
+    /** Every signal that can be heard from a point, nearest first. */
+    signals(x, y, year, range) {
+      const out = [];
+      for (const seen of this.galaxy.within(x, y, range)) {
+        if (seen.dist === 0) continue;
+        const site = this.heard(this.system(seen.ref), year, seen.dist);
+        if (site) out.push({ seen, site });
+      }
+      return out;
+    }
+    /** Find a culture again from its id. */
+    byId(id) {
+      const m = /^([WR])(-?\d+):(.+)$/.exec(id);
+      if (!m) return null;
+      const era = Number(m[2]);
+      if (m[1] === "W") {
+        const ref = this.galaxy.ref(m[3]);
+        return ref ? this.worldIn(this.system(ref), era) : null;
+      }
+      const [ccx, ccy] = m[3].split(".").map(Number);
+      if (!Number.isInteger(ccx) || !Number.isInteger(ccy)) return null;
+      return this.reachesIn(ccx, ccy, era).find((c) => c.id === id) ?? null;
+    }
+  };
+  var HEARING = CIV.LOUD.height * CIV.LOUD_REACH;
+
+  // src/core/hull.ts
+  function convexHull(points) {
+    const p = [...points].sort((a, b) => a.x - b.x || a.y - b.y);
+    if (p.length < 3) return p;
+    const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+    const half = (list) => {
+      const out = [];
+      for (const q of list) {
+        while (out.length >= 2 && cross(out[out.length - 2], out[out.length - 1], q) <= 0) out.pop();
+        out.push(q);
+      }
+      return out.slice(0, -1);
+    };
+    return half(p).concat(half(p.reverse()));
+  }
+  function paddedHull(points, margin) {
+    const ring = Array.from({ length: 12 }, (_, i) => ({ x: Math.cos(i / 12 * 2 * Math.PI), y: Math.sin(i / 12 * 2 * Math.PI) }));
+    return convexHull(convexHull(points).flatMap((p) => ring.map((r) => ({ x: p.x + margin * r.x, y: p.y + margin * r.y }))));
+  }
+  function insidePolygon(polygon, x, y) {
+    let inside = false;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+      const a = polygon[i];
+      const b = polygon[j];
+      if (a.y > y !== b.y > y && x < (b.x - a.x) * (y - a.y) / (b.y - a.y) + a.x) inside = !inside;
+    }
+    return inside;
+  }
+  function nearestOnPolygon(polygon, x, y) {
+    let best = polygon[0] ?? { x, y };
+    let least = Infinity;
+    polygon.forEach((a, i) => {
+      const b = polygon[(i + 1) % polygon.length];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const span2 = dx * dx + dy * dy;
+      const t = span2 ? Math.min(1, Math.max(0, ((x - a.x) * dx + (y - a.y) * dy) / span2)) : 0;
+      const p = { x: a.x + t * dx, y: a.y + t * dy };
+      const d = Math.hypot(p.x - x, p.y - y);
+      if (d < least) {
+        least = d;
+        best = p;
+      }
+    });
+    return best;
+  }
+  function drawPolygon(polygon, size, grid) {
+    if (!polygon.length) return;
+    const clampCell = (v) => Math.min(size - 1, Math.max(0, Math.floor(v)));
+    const xs = polygon.map((p) => p.x);
+    const ys = polygon.map((p) => p.y);
+    if (Math.max(...xs) < 0 || Math.max(...ys) < 0 || Math.min(...xs) >= size || Math.min(...ys) >= size) return;
+    for (let r = clampCell(Math.min(...ys)); r <= clampCell(Math.max(...ys)); r++) {
+      for (let c = clampCell(Math.min(...xs)); c <= clampCell(Math.max(...xs)); c++) {
+        if (!grid[r * size + c] && insidePolygon(polygon, c + 0.5, r + 0.5)) grid[r * size + c] = 1;
+      }
+    }
+    polygon.forEach((from, i) => {
+      const to = polygon[(i + 1) % polygon.length];
+      let x = Math.floor(from.x);
+      let y = Math.floor(from.y);
+      const x1 = Math.floor(to.x);
+      const y1 = Math.floor(to.y);
+      const dx = Math.abs(x1 - x);
+      const dy = -Math.abs(y1 - y);
+      const sx = x < x1 ? 1 : -1;
+      const sy = y < y1 ? 1 : -1;
+      let err = dx + dy;
+      for (let guard = 0; guard < 1e5; guard++) {
+        if (x >= 0 && y >= 0 && x < size && y < size) grid[y * size + x] = 2;
+        if (x === x1 && y === y1) break;
+        const e2 = 2 * err;
+        if (e2 >= dy) {
+          err += dy;
+          x += sx;
+        }
+        if (e2 <= dx) {
+          err += dx;
+          y += sy;
+        }
+      }
+    });
+  }
+
   // src/core/travel.ts
   function cruiseGamma(drive, thrustFraction, n) {
     const reach = TUNE.REACH * drive.thrust * thrustFraction * drive.hull;
@@ -1961,7 +2601,59 @@ input, textarea {
     ],
     relic: [
       "Somebody made that. They are not here now, and I can't yet say for how long.",
-      "The Wrights have it in the yard. They've put a rope around it, as if it might leave."
+      "The Wrights have it in the yard. They've put a rope around it, as if it might leave.",
+      "Small enough to carry and old enough to matter. I have logged whose it was.",
+      "It is in the hold, padded. Somebody, somewhere, will want to see that."
+    ],
+    signal_first: [
+      "Number {n} is broadcasting. Structured, repeating, nothing a star does. Somebody is home there, or was {light} ago when that light left."
+    ],
+    civ_first: [
+      "So we are not the only ones out here. I had assumed as much. It is different to see the lights.",
+      "People. Not ours. I have had a greeting drafted for some centuries, and now none of it seems right."
+    ],
+    civ_arrive: [
+      "They have seen our plume. They would have to be asleep not to.",
+      "Somebody else's sky. We are guests here, whether or not anyone has said so.",
+      "I'm listening on everything. They are talking about us, I think. I would be.",
+      "Occupied. I have dimmed the running lights, which is manners where I come from.",
+      "Their traffic has changed course around us. Politely, so far.",
+      "New people. I am keeping a respectful orbit and a very full log."
+    ],
+    civ_outpost: [
+      "A long way from home, these ones. So are we.",
+      "An outpost. Somebody thought this place was worth the freight.",
+      "A flag, a dock and a few thousand people. Empires look like this at the edges."
+    ],
+    civ_claim: [
+      "Somebody has drawn a line around this space. Nobody is here to hold it.",
+      "Claimed, by the broadcasts. Empty, by the telescopes."
+    ],
+    civ_same: [
+      "I know these people. They have changed the name on the door.",
+      "The same kind of creature as before, with a different flag. It has been long enough for that."
+    ],
+    civ_ruins: [
+      "Somebody built here, and stopped. A deep scan would tell us who.",
+      "That is not geology. I'd like to know whose it was.",
+      "Ruins. I never know whether to lower my voice.",
+      "Somebody's work, gone quiet. We could spare a crew to read it."
+    ],
+    civ_gone: [
+      "We were talking to them not long ago, by my clock. I keep both clocks. This is what the other one is for.",
+      "They had the rest of their history while we were between stars.",
+      "I have their broadcasts on file. I may be the only one who does.",
+      "I liked them. I would rather not say that about people who can't hear it, but there it is."
+    ],
+    civ_new: [
+      "There was nobody here when we last looked. I checked my own log to be sure.",
+      "New since our last visit. We were gone long enough for someone to learn to build."
+    ],
+    ruin_read: [
+      "I have a name for them now. That is more than they have.",
+      "I've added what they wrote to the Archive. Somebody ought to keep it.",
+      "All of that, and what is left fits in a survey report.",
+      "They counted, they built, they stopped. I can tell you the first two in detail."
     ],
     fancy_seen: [
       "There's a {kind} {dist} off, number {n} on the chart. I'd like to see it, if we're passing. I don't ask often.",
@@ -2045,15 +2737,15 @@ input, textarea {
   var GUIDE = {
     start: "First, a sweep. It costs an hour and shows what orbits this star.",
     swept: "That is everything big enough to see from here. We have two crews, both idle. {where} has fuel for the taking, and a survey would tell us what the rest is worth.",
-    sweptHint: 'Try "scoop {n}" and "survey". "ops" lists all the work here, and "look" (or "map") shows this table again.',
+    sweptHint: 'Try "scoop {n}" and "survey". "ops" lists all the work here, and "look" shows this table and the crews again.',
     sweptBare: "That is everything big enough to see from here. We have two crews, both idle. A survey would tell us what this place is worth.",
-    sweptBareHint: 'Try "survey". "ops" lists all the work here, and "look" (or "map") shows this table again.',
+    sweptBareHint: 'Try "survey". "ops" lists all the work here, and "look" shows this table and the crews again.',
     working: "Good. Nothing happens until you let the days run.",
     workingHint: '"stay" runs time until a crew finishes or something turns up. "stay 30" runs thirty days.',
     stayed: "That is the rhythm of it: put the crews to work, let the days run, see what turns up. Stay as long as it pays.",
-    stayedHint: 'When you want to move on, "chart" shows the stars in reach.',
+    stayedHint: 'When you want to move on, "chart" shows what stands out among the stars in reach.',
     charted: "Pick one and I will work out what it costs. A few months for us is a few years for everyone outside.",
-    chartedHint: '"plot 1" costs the trip to number 1. "scope 1" is what the telescope sees there. "gas" shows the wider sky.',
+    chartedHint: '"plot 1" says what is at number 1 and what the trip costs. A name works too. "chart close" lists the nearest stars; "chart far" shows the wider sky.',
     done: "That is all of it. I will stop explaining now. Ask, if you want my view of anything."
   };
 
@@ -2103,14 +2795,19 @@ input, textarea {
   }
 
   // src/core/state.ts
+  function freshMemory(year) {
+    return { first: year, last: year, visits: 1, swept: false, effort: 0, found: 0, scanned: [], sites: [], seen: [] };
+  }
+  var SAVE_VERSION = 2;
   function level(state, track) {
     return REFITS[track].levels[state.ship.levels[track]];
   }
-  function findStart(galaxy) {
+  function findStart(galaxy, cultures = new Cultures(galaxy)) {
     const { cfg } = galaxy;
     const rng = new Stream(cfg.seed, K.START);
     const turn = rng.next() * 2 * Math.PI;
     let fallback = null;
+    let lonely = null;
     for (let k = 0; k < 600; k++) {
       const angle = turn + k * 2.39996;
       const r = cfg.scaleLength * (0.9 + 0.6 * (k * 0.618 % 1));
@@ -2122,16 +2819,24 @@ input, textarea {
         const members = [...galaxy.clusterMembers(ccx, ccy, i, 0), ...galaxy.clusterMembers(ccx, ccy, i, 1)];
         members.sort((a, b) => Math.hypot(a.x - cluster.x, a.y - cluster.y) - Math.hypot(b.x - cluster.x, b.y - cluster.y));
         for (const ref of members) {
-          const sys = generateSystem(galaxy, ref);
+          const sys = cultures.system(ref);
           fallback ?? (fallback = ref);
           const ice = sys.bodies.some((b) => b.ice > 0);
           const ore = sys.bodies.some((b) => b.ore > 0);
-          if (sys.giants > 0 && ice && ore && (sys.star === "K" || sys.star === "G" || sys.star === "M")) return ref;
+          if (!(sys.giants > 0 && ice && ore && (sys.star === "K" || sys.star === "G" || sys.star === "M"))) continue;
+          const here = cultures.presence(sys, 0);
+          if (here.sites.length || here.claims.length) continue;
+          lonely ?? (lonely = ref);
+          const near = galaxy.within(ref.x, ref.y, cfg.strata[0].sight).filter((s) => s.dist > 0);
+          const sites = near.flatMap((s) => cultures.presence(cultures.system(s.ref), 0).sites);
+          if (sites.some((s) => s.alive) && sites.some((s) => !s.alive)) return ref;
         }
       }
+      if (lonely && k > 40) return lonely;
     }
-    if (!fallback) throw new Error("no starting system found; is the galaxy empty?");
-    return fallback;
+    const found = lonely ?? fallback;
+    if (!found) throw new Error("no starting system found; is the galaxy empty?");
+    return found;
   }
   function freshState(galaxy, seed) {
     const start = findStart(galaxy);
@@ -2149,7 +2854,7 @@ input, textarea {
     };
     const levels = { engine: 0, hull: 0, tanks: 0, optics: 0, crews: 0, hold: 0 };
     return {
-      v: 1,
+      v: SAVE_VERSION,
       seed,
       ship: { fuel: 0.7 * REFITS.tanks.levels[0], shield: 78, hull: 93, materials: 40, archive: 0, levels, relics: [] },
       tShip: 0,
@@ -2157,7 +2862,8 @@ input, textarea {
       at: start.id,
       crews: [null, null],
       visit: { arrived: 0, provisioned: false, slow: false, long: false, hinted: false, idle: false, starShown: false, lastAdvice: "" },
-      mem: { [start.id]: { first: 0, last: 0, visits: 1, swept: false, effort: 0, found: 0, scanned: [] } },
+      mem: { [start.id]: freshMemory(0) },
+      met: {},
       seen: {},
       journal: [{ g: 0, text: `Woken at ${sys.name}.` }],
       mind,
@@ -2169,7 +2875,28 @@ input, textarea {
   }
 
   // src/core/game.ts
-  var MAP_SIZE = 64;
+  var MAP_SIZE = 96;
+  var ZOOM_STEP = 4;
+  var COMPASS = ["east", "north-east", "north", "north-west", "west", "south-west", "south", "south-east"];
+  var compass = (x, y) => COMPASS[(Math.round(Math.atan2(y, x) / (Math.PI / 4)) % 8 + 8) % 8];
+  function numberList(numbers) {
+    const runs = [];
+    for (let i = 0; i < numbers.length; i++) {
+      let j = i;
+      while (j + 1 < numbers.length && numbers[j + 1] === numbers[j] + 1) j++;
+      if (j - i >= 2) runs.push(`${numbers[i]} to ${numbers[j]}`);
+      else for (let k = i; k <= j; k++) runs.push(String(numbers[k]));
+      i = j;
+    }
+    return runs.length === 1 ? runs[0] : `${runs.slice(0, -1).join(", ")} and ${runs[runs.length - 1]}`;
+  }
+  function roundUp(ly2) {
+    return [2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 25, 32, 40, 50, 64, 80, 100].find((r) => r >= ly2) ?? Math.ceil(ly2 / 50) * 50;
+  }
+  function gasShade(n) {
+    const t = (Math.log10(Math.max(n, 1e-6)) + 2) / 4;
+    return Math.round(35 * Math.min(1, Math.max(0, t))).toString(36);
+  }
   var TONE = {
     M: "warm",
     K: "warm",
@@ -2188,6 +2915,19 @@ input, textarea {
     BH: "cold",
     MAG: "cold"
   };
+  var PHASE_WORD = {
+    founding: "newly risen",
+    rising: "rising",
+    height: "at their height",
+    decline: "in decline",
+    ruins: "gone",
+    "old ruins": "long gone"
+  };
+  function roughly(years) {
+    const digits = Math.max(0, Math.floor(Math.log10(Math.max(1, years))) - 1);
+    const unit2 = 10 ** digits;
+    return `about ${(Math.max(1, Math.round(years / unit2)) * unit2).toLocaleString("en-US")} years`;
+  }
   var PLUS = ["", "", "+", "++"];
   var ORDINALS = ["", "first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth", "tenth"];
   var ordinal = (n) => ORDINALS[n] ?? `${n}th`;
@@ -2199,7 +2939,8 @@ input, textarea {
     s: "stay",
     wait: "stay",
     c: "chart",
-    sc: "scope",
+    sc: "plot",
+    scope: "plot",
     p: "plot",
     b: "burn",
     go: "burn",
@@ -2214,7 +2955,8 @@ input, textarea {
     stop: "recall",
     idle: "recall",
     codex: "finds",
-    upgrades: "refits",
+    upgrades: "ship",
+    refits: "ship",
     fix: "repair",
     map: "look",
     system: "look",
@@ -2242,13 +2984,11 @@ input, textarea {
     "stay",
     "chart",
     "gas",
-    "scope",
     "plot",
     "burn",
     "drift",
     "ask",
     "ship",
-    "refits",
     "refit",
     "log",
     "finds",
@@ -2271,12 +3011,15 @@ input, textarea {
   var Game = class _Game {
     constructor(state, cfg = DEMO) {
       __publicField(this, "galaxy");
+      __publicField(this, "cultures");
       __publicField(this, "state");
       __publicField(this, "systems", /* @__PURE__ */ new Map());
       __publicField(this, "out", []);
       /** The last command, so the suggestion chips can follow the conversation. */
       __publicField(this, "lastVerb", "");
+      __publicField(this, "lastZoom", "mid");
       this.galaxy = new Galaxy({ ...cfg, seed: state.seed });
+      this.cultures = new Cultures(this.galaxy, (ref) => this.systemAt(ref));
       this.state = state;
     }
     static fresh(seed = DEMO.seed, cfg = DEMO) {
@@ -2285,7 +3028,8 @@ input, textarea {
     }
     static load(text, cfg = DEMO) {
       const state = JSON.parse(text);
-      if (state.v !== 1 || typeof state.seed !== "number" || !state.ship || !state.mem) throw new Error("not a save from this game");
+      if (typeof state.v === "number" && state.v < SAVE_VERSION) throw new Error("a save from an older version");
+      if (state.v !== SAVE_VERSION || typeof state.seed !== "number" || !state.ship || !state.mem) throw new Error("not a save from this game");
       const game2 = new _Game(state, cfg);
       if (!game2.galaxy.ref(state.at)) throw new Error("save points at a system that does not exist");
       return game2;
@@ -2294,16 +3038,29 @@ input, textarea {
       return JSON.stringify(this.state);
     }
     // ---- small accessors ----------------------------------------------------
-    system(id) {
-      let sys = this.systems.get(id);
+    systemAt(ref) {
+      let sys = this.systems.get(ref.id);
       if (!sys) {
-        const ref = this.galaxy.ref(id);
-        if (!ref) throw new Error(`unknown system ${id}`);
         sys = generateSystem(this.galaxy, ref);
-        if (this.systems.size > 4e3) this.systems.clear();
-        this.systems.set(id, sys);
+        if (this.systems.size > 12e3) this.systems.clear();
+        this.systems.set(ref.id, sys);
       }
       return sys;
+    }
+    system(id) {
+      const hit = this.systems.get(id);
+      if (hit) return hit;
+      const ref = this.galaxy.ref(id);
+      if (!ref) throw new Error(`unknown system ${id}`);
+      return this.systemAt(ref);
+    }
+    /** Who is at a system right now. Defaults to the one we are in. */
+    people(id = this.state.at) {
+      return this.cultures.presence(this.system(id), this.state.tGal);
+    }
+    /** What the light from a system shows of anyone living there, if their radio carries this far. */
+    heard(seen) {
+      return seen.dist <= HEARING ? this.cultures.heard(this.systemAt(seen.ref), this.state.tGal, seen.dist) : null;
     }
     get here() {
       return this.system(this.state.at);
@@ -2411,13 +3168,10 @@ input, textarea {
           this.stay(arg);
           break;
         case "chart":
-          this.chart();
+          this.chart(arg);
           break;
         case "gas":
-          this.gas();
-          break;
-        case "scope":
-          this.scope(arg);
+          this.chart("far");
           break;
         case "plot":
           this.plot(arg);
@@ -2433,9 +3187,6 @@ input, textarea {
           break;
         case "ship":
           this.ship();
-          break;
-        case "refits":
-          this.refits();
           break;
         case "refit":
           this.refit(arg);
@@ -2517,16 +3268,17 @@ input, textarea {
       const s = this.state;
       if (!this.mem.swept) return ["sweep", "chart", "ship", "ask", "help"];
       if ((this.lastVerb === "chart" || this.lastVerb === "gas") && s.chart.length) {
-        return [...s.chart.slice(0, 5).map((_, i) => `plot ${i + 1}`), "scope 1", this.lastVerb === "gas" ? "chart" : "gas", "look"];
+        const others = ["chart close", "chart", "chart far"].filter((_, i) => i !== ["close", "mid", "far"].indexOf(this.lastZoom));
+        return [...s.chart.slice(0, 5).map((_, i) => `plot ${i + 1}`), ...others, "look"];
       }
-      if ((this.lastVerb === "plot" || this.lastVerb === "scope") && s.plot) return ["burn", "burn eco", "chart", "look"];
+      if (this.lastVerb === "plot" && s.plot) return ["burn", "burn eco", "chart", "look"];
       const chips2 = [];
       if (s.crews.some((c) => c === null)) {
         for (const job of this.suggestions()) if (chips2.length < 3) chips2.push(job);
       }
       if (s.crews.some((c) => c !== null)) chips2.push("stay", "stay 30");
-      const refitReady = Object.keys(REFITS).some((t) => this.refitState(t) === "ready");
-      if (refitReady && s.crews.some((c) => c === null)) chips2.push("refits");
+      const ready = Object.keys(REFITS).find((t) => this.refitState(t) === "ready");
+      if (ready && s.crews.some((c) => c === null)) chips2.push(`refit ${ready}`);
       chips2.push("look", "ops", "chart", "ship", "ask");
       if (s.guide === 3) return ["chart", ...chips2.filter((c) => c !== "chart")];
       return chips2;
@@ -2541,6 +3293,21 @@ input, textarea {
     hints() {
       return this.here.discoveries.slice(0, this.mem.found).filter((d) => d.feature?.hint && !this.mem.scanned.includes(d.feature.id));
     }
+    /** Bodies that are somebody's living home. We take nothing from those. */
+    homes() {
+      return new Set(this.people().sites.filter((x) => x.alive && x.kind === "home").map((x) => x.body));
+    }
+    /** Ruins here that nobody has read yet. They only show once the system has been swept. */
+    ruins() {
+      if (!this.mem.swept) return [];
+      return this.people().sites.filter((x) => !x.alive && !this.mem.sites.includes(x.culture.id));
+    }
+    /** Everything here that a deep scan could be pointed at. */
+    scanTargets() {
+      const out = this.hints().map((d) => ({ body: d.body, days: TUNE.SCAN_DAYS[d.feature.rarity], feature: d.feature }));
+      for (const site of this.ruins()) out.push({ body: site.body, days: site.kind === "home" ? CIV.DIG_HOME : CIV.DIG_OUTPOST, site });
+      return out;
+    }
     workWords(b) {
       if (b.kind === "star") return STARS[this.here.star].wind ? "wind" : "-";
       const mark = (r) => this.charted(b.n) ? PLUS[r] : "?";
@@ -2553,7 +3320,8 @@ input, textarea {
     }
     systemTable() {
       const sys = this.here;
-      const hinted = new Set(this.hints().map((d) => d.body));
+      const hinted = new Set(this.scanTargets().map((t) => t.body));
+      const lived = new Set(this.people().sites.filter((x) => x.alive).map((x) => x.body));
       const glyph = {
         star: "*",
         scorched: ".",
@@ -2569,16 +3337,22 @@ input, textarea {
       };
       let strip = " ";
       let index = " ";
+      let posted = " ";
       for (const b of sys.bodies) {
         const g = glyph[b.kind];
         const cell = Math.max(g.length + 2, 4);
+        const crews = this.state.crews.map((c, i) => c && c.body === b.n ? i + 1 : 0).filter((n) => n > 0);
         strip += pad(g, cell);
         index += pad(b.n === 0 ? "" : String(b.n), cell);
+        posted += pad(crews.length ? `c${crews.join("")}` : "", cell);
       }
-      const lines = [strip.trimEnd(), index.trimEnd(), "", " #  body                  au  work"];
+      const lines = [strip.trimEnd(), index.trimEnd()];
+      if (posted.trim()) lines.push(posted.trimEnd());
+      lines.push("", " #  body                  au  work");
       for (const b of sys.bodies) {
         const au = b.n === 0 ? "-" : b.au < 1 ? b.au.toFixed(2) : b.au < 10 ? b.au.toFixed(1) : String(Math.round(b.au));
-        lines.push(`${lpad(String(b.n), 2)}${hinted.has(b.n) ? "!" : " "} ${pad(bodyLabel(b), 19)}${lpad(au, 5)}  ${this.workWords(b)}`);
+        const mark = hinted.has(b.n) ? "!" : lived.has(b.n) ? "^" : " ";
+        lines.push(`${lpad(String(b.n), 2)}${mark} ${pad(bodyLabel(b), 19)}${lpad(au, 5)}  ${this.workWords(b)}`);
       }
       return lines;
     }
@@ -2594,7 +3368,139 @@ input, textarea {
       const feh = `${sys.feh >= 0 ? "+" : "-"}${Math.abs(sys.feh).toFixed(2)}`;
       this.out.push({ k: "head", s: `${this.nameOf(sys.ref.id).toUpperCase()} \xB7 ${starLine(sys)}` });
       this.dim(`${place} \xB7 gas ${Galaxy.gasWord(this.galaxy.gas(sys.ref.x, sys.ref.y))} \xB7 [Fe/H] ${feh}`);
+      const who = this.whoLine();
+      if (who) this.dim(who);
     }
+    /** One line on who is here now, for the heading. */
+    whoLine() {
+      const { sites, claims } = this.people();
+      const parts = [];
+      const here = /* @__PURE__ */ new Set();
+      for (const site of sites) {
+        if (!site.alive) continue;
+        here.add(site.culture.id);
+        parts.push(site.kind === "home" ? `home of ${site.culture.title}, ${PHASE_WORD[site.phase]}` : `an outpost of ${site.culture.title}`);
+      }
+      for (const c of claims) if (!here.has(c.id)) parts.push(`inside the space of ${c.title}`);
+      return parts.length ? capital(parts.join(" \xB7 ")) : null;
+    }
+    // ---- other people ------------------------------------------------------
+    /** Add a culture to those we know of. True if this is the first we have known of them in this way. */
+    learn(c, how) {
+      const s = this.state;
+      const known = s.met[c.id];
+      if (!known) {
+        s.met[c.id] = { title: c.title, home: c.home.id, t: s.tGal, how };
+        return true;
+      }
+      if (how === "met" && known.how === "ruins") {
+        known.how = "met";
+        return true;
+      }
+      return false;
+    }
+    /** Describe a living site, and take note of its people if they are new to us. */
+    meet(site, back) {
+      const s = this.state;
+      const sys = this.here;
+      const c = site.culture;
+      const n = strHash(c.id + sys.ref.id);
+      const kind = sys.bodies[site.body].kind;
+      const where = capital(bodyRef(sys, site.body));
+      const since = back ? " They were not here when we last came." : "";
+      if (site.kind === "home") {
+        const extent = frontier(c, s.tGal);
+        const holds = extent >= 1 ? ` Their space runs ${ly(extent)} light-years out from here.` : "";
+        this.text(`${where}: ${settledText(kind, true, n)}. Somebody is home: ${c.title}, ${PHASE_WORD[site.phase]}.${holds}${since}`);
+      } else {
+        const d = Math.hypot(c.home.x - sys.ref.x, c.home.y - sys.ref.y);
+        this.text(`${where}: ${settledText(kind, false, n)}. An outpost of ${c.title}, whose home is ${this.nameOf(c.home.id)}, ${ly(d)} light-years off.${since}`);
+      }
+      const kin = Object.entries(s.met).find(([id, m]) => id !== c.id && m.home === c.home.id)?.[1];
+      if (!this.learn(c, "met")) return;
+      const first = !s.mind.said.includes("civ_first");
+      this.text(kin ? `The same people we know as ${kin.title}, under a newer name.` : c.sketch);
+      const credit = CIV.MEET_ARCHIVE * (c.reach ? 2 : 1) * (first ? 2 : 1);
+      s.ship.archive += credit;
+      this.good(`${capital(c.title)}: a people new to the Archive. (+${credit})`);
+      this.note(`Met ${c.title} at ${this.nameOf(sys.ref.id)}.`);
+      if (first) {
+        this.sayOnce("civ_first", "civ_first");
+        this.dim("For now they can only be watched. Dealing with them comes in a later build.");
+      } else {
+        this.say(kin ? "civ_same" : back ? "civ_new" : site.kind === "outpost" ? "civ_outpost" : "civ_arrive");
+      }
+    }
+    /** Point out a ruin the sweep has picked up. Whose it was takes a deep scan. */
+    noticeRuin(site) {
+      const s = this.state;
+      const sys = this.here;
+      const hint = ruinHint(sys.bodies[site.body].kind, strHash(site.culture.id + sys.ref.id));
+      this.out.push({ k: "alert", s: renderFeature(sys, site.body, hint, site.culture.id) });
+      this.dim(`"scan ${site.body}" would say whose it was, in about ${site.kind === "home" ? CIV.DIG_HOME : CIV.DIG_OUTPOST} days.`);
+      if (s.visit.ruins) return;
+      s.visit.ruins = true;
+      if (!s.mind.said.includes("ruin_first")) this.sayOnce("ruin_first", "civ_ruins");
+      else if (s.stats.systems % 2 === 0) this.say("civ_ruins");
+    }
+    /**
+     * Take stock of who is here: say what has become of those we knew, greet
+     * anyone new, and point out ruins once the system has been swept. What we
+     * see is remembered, so that the next visit can tell the difference.
+     *
+     * `when` is the occasion: arriving, the first sweep, or the end of a stay
+     * during which something changed.
+     */
+    takeNote(when) {
+      const s = this.state;
+      const sys = this.here;
+      const mem = this.mem;
+      const now = this.people();
+      const before = mem.seen;
+      const back = when === "arrive" && mem.visits > 1;
+      const name = this.nameOf(sys.ref.id);
+      if (when !== "sweep") {
+        let weathered = false;
+        for (const note2 of before) {
+          const site = now.sites.find((x) => x.culture.id === note2.id);
+          const title = s.met[note2.id]?.title;
+          if (!isLiving(note2.phase)) {
+            weathered || (weathered = !site);
+          } else if (!title) {
+            continue;
+          } else if (!site) {
+            this.out.push({ k: "alert", s: `Nothing is left of ${title}. Not a wall, not a signal.` });
+            this.note(`${capital(title)} were gone from ${name} when we came back.`);
+            this.say("civ_gone");
+          } else if (!site.alive) {
+            this.out.push({
+              k: "alert",
+              s: `${capital(title)} are gone. What they built still stands on ${bodyRef(sys, site.body)}, empty for ${roughly(s.tGal - site.since)}.`
+            });
+            this.note(when === "stay" ? `${capital(title)} ended at ${name} while we were in orbit.` : `${capital(title)} were gone from ${name} when we came back.`);
+            this.say("civ_gone");
+          } else if (site.phase !== note2.phase) {
+            this.text(`${capital(title)} were ${PHASE_WORD[note2.phase]} when we ${when === "stay" ? "arrived" : "were last here"}. They are ${PHASE_WORD[site.phase]} now.`);
+          } else if (when === "arrive") {
+            this.text(`${capital(title)} are still here, ${PHASE_WORD[site.phase]}.`);
+          }
+        }
+        if (weathered) this.dim("The ruins we logged here have weathered away to nothing.");
+      }
+      const notes = [];
+      for (const site of now.sites) {
+        const known = before.find((note2) => note2.id === site.culture.id);
+        if (site.alive) {
+          if (!known) this.meet(site, back);
+        } else if (!known) {
+          if (!mem.swept) continue;
+          if (!mem.sites.includes(site.culture.id)) this.noticeRuin(site);
+        }
+        notes.push({ id: site.culture.id, phase: site.phase });
+      }
+      mem.seen = notes;
+    }
+    // ---- looking, continued -------------------------------------------------
     look() {
       const sys = this.here;
       this.heading();
@@ -2602,9 +3508,13 @@ input, textarea {
         this.text(`${this.starText(sys)} Nothing else here has been looked at yet.`);
         return;
       }
-      this.pre(this.systemTable());
+      this.pre([...this.systemTable(), "", ...this.state.crews.map((c, i) => ` crew ${i + 1}  ${c ? this.describe(c) : "idle"}`)]);
       const k = sys.discoveries.length;
-      if (k) this.dim(`survey ${Math.round(100 * this.mem.found / k)}% \xB7 ! marks something worth a deep scan`);
+      const lived = this.people().sites.some((x) => x.alive);
+      const legend = [`survey ${k ? Math.round(100 * this.mem.found / k) : 100}%`, "! marks something worth a deep scan"];
+      if (lived) legend.push("^ somebody lives there");
+      if (this.state.crews.some((c) => c && c.body >= 0)) legend.push("c1 under a body is crew 1 at work there");
+      if (k || lived || this.scanTargets().length) this.dim(legend.join(" \xB7 "));
     }
     sweep() {
       const sys = this.here;
@@ -2628,6 +3538,7 @@ input, textarea {
       s.ship.archive += credit;
       const bodies = sys.bodies.length - 1;
       this.dim(`${bodies === 0 ? "No bodies" : bodies === 1 ? "One body" : `${bodies} bodies`} resolved. Archive +${credit}. A survey would say what they are worth.`);
+      this.takeNote("sweep");
       const has = (f2) => sys.bodies.some(f2);
       if (sys.anomaly) this.say("sweep_anomaly");
       else if (bodies === 0) this.say("sweep_empty");
@@ -2676,7 +3587,8 @@ input, textarea {
       const s = this.state;
       if (!this.mem.swept) return [];
       const busy = (op, body = -1) => s.crews.some((c) => c && c.op === op && (body < 0 || c.body === body));
-      const best = (key) => sys.bodies.filter((b) => b[key] > 0).sort((a, b) => b[key] - a[key])[0];
+      const homes = this.homes();
+      const best = (key) => sys.bodies.filter((b) => b[key] > 0 && !homes.has(b.n)).sort((a, b) => b[key] - a[key])[0];
       const jobs = [];
       const giant = best("fuel");
       if (this.fuelPct < 90 && !busy("scoop")) {
@@ -2685,7 +3597,7 @@ input, textarea {
       }
       const ice = best("ice");
       if (ice && s.ship.shield < 90 && !busy("ice")) jobs.push(`ice ${ice.n}`);
-      for (const d of this.hints()) if (!busy("scan", d.body)) jobs.push(`scan ${d.body}`);
+      for (const body of new Set(this.scanTargets().map((t) => t.body))) if (!busy("scan", body)) jobs.push(`scan ${body}`);
       if (this.mem.found < sys.discoveries.length && !busy("survey")) jobs.push("survey");
       if (s.ship.hull < 85 && s.ship.materials >= 5 && !busy("repair")) jobs.push("repair");
       const ore = best("ore");
@@ -2702,18 +3614,19 @@ input, textarea {
       const lines = [];
       s.crews.forEach((c, i) => lines.push(` crew ${i + 1}  ${c ? this.describe(c) : "idle"}`));
       lines.push("", " work here");
-      for (const b of sys.bodies) {
+      const open = sys.bodies.filter((b) => !this.homes().has(b.n));
+      for (const b of open) {
         const rate = this.scoopRate(b);
         if (b.kind === "star" ? STARS[sys.star].wind : b.fuel > 0) {
           lines.push(`  ${pad(`scoop ${b.n}`, 9)} fuel +${rate}%/day${b.kind === "star" ? " (wind)" : ""}`);
         }
       }
-      for (const b of sys.bodies) if (b.ice) lines.push(`  ${pad(`ice ${b.n}`, 9)} shield +${TUNE.ICE[b.ice]}%/day`);
-      for (const b of sys.bodies) if (b.ore) lines.push(`  ${pad(`mine ${b.n}`, 9)} materials +${TUNE.ORE[b.ore]}/day`);
+      for (const b of open) if (b.ice) lines.push(`  ${pad(`ice ${b.n}`, 9)} shield +${TUNE.ICE[b.ice]}%/day`);
+      for (const b of open) if (b.ore) lines.push(`  ${pad(`mine ${b.n}`, 9)} materials +${TUNE.ORE[b.ore]}/day`);
       const total = sys.discoveries.length;
       if (total) lines.push(`  ${pad("survey", 9)} ${Math.round(100 * this.mem.found / total)}% done`);
-      for (const d of this.hints()) {
-        lines.push(`  ${pad(`scan ${d.body}`, 9)} oddity, ~${TUNE.SCAN_DAYS[d.feature.rarity]} days`);
+      for (const t of this.scanTargets()) {
+        lines.push(`  ${pad(`scan ${t.body}`, 9)} ${t.site ? "ruins" : "oddity"}, ~${t.days} days`);
       }
       if (s.ship.hull < 99.5) lines.push(`  ${pad("repair", 9)} hull ${Math.round(s.ship.hull)}%, ${TUNE.REPAIR_COST} mat per %`);
       this.pre(lines);
@@ -2745,6 +3658,10 @@ input, textarea {
           return;
         }
         const ref = bodyRef(sys, body);
+        if (op !== "scan" && this.homes().has(body)) {
+          this.text(`${capital(ref)} is somebody's home. We take nothing from it.`);
+          return;
+        }
         if (op === "scoop" && !(b.kind === "star" ? STARS[sys.star].wind : b.fuel > 0)) {
           this.text(`There is nothing to scoop at ${ref}.`);
           return;
@@ -2758,13 +3675,14 @@ input, textarea {
           return;
         }
         if (op === "scan") {
-          const hint = this.hints().find((d) => d.body === body);
-          if (!hint) {
+          const target = this.scanTargets().find((t) => t.body === body);
+          if (!target) {
             this.text(`Nothing at ${ref} asks for a deep scan. The survey flags what does.`);
             return;
           }
-          job.feature = hint.feature.id;
-          job.need = TUNE.SCAN_DAYS[hint.feature.rarity];
+          if (target.site) job.site = target.site.culture.id;
+          else job.feature = target.feature.id;
+          job.need = target.days;
         }
         job.body = body;
       }
@@ -2855,7 +3773,7 @@ input, textarea {
     finishScan(a, day) {
       const sys = this.here;
       const s = this.state;
-      const def = FEATURES.find((f2) => f2.id === a.feature);
+      const def = FEATURE_BY_ID[a.feature];
       const before = s.seen[def.id] ?? 0;
       const share = TUNE.ARCHIVE[def.rarity] * (1 - TUNE.HINT_SHARE);
       const credit = Math.round(before === 0 ? share * TUNE.FIRST_BONUS : share);
@@ -2868,9 +3786,48 @@ input, textarea {
         again ? `Day ${day}. Deep scan complete. ${capital(def.title)}, at ${bodyRef(sys, a.body)}. The ${ordinal(before + 1)} such place in the Archive.` : `Day ${day}. Deep scan complete. ${renderFeature(sys, a.body, def.text, def.id)}`
       );
       this.dim(`${capital(RARITY_WORD[def.rarity])} find. Archive +${credit}${before === 0 ? ", first of its kind" : ""}.`);
-      if (def.relic) s.ship.relics.push(def.relic);
-      if (!again) this.say(def.relic ? "relic" : def.rarity === 3 ? "find_exceptional" : "find_rare");
+      const relic = def.relic && mix(s.seed, K.RELIC, strHash(sys.ref.id), strHash(def.id)) / 4294967296 < def.relic.chance ? def.relic : null;
+      if (relic) {
+        s.ship.relics.push({ what: relic.what, kind: relic.kind, of: "", t: s.tGal });
+        this.good(`The Wrights have brought ${relic.what} aboard.`);
+      }
+      if (!again) this.say(relic ? "relic" : def.rarity === 3 ? "find_exceptional" : "find_rare");
       this.note(`${capital(def.title)} at ${this.nameOf(sys.ref.id)}.`);
+    }
+    /** A crew has finished reading a ruin: whose it was, what it adds to the Archive, and now and then something to carry away. */
+    finishRuin(a, day) {
+      const s = this.state;
+      const sys = this.here;
+      const id = a.site;
+      this.mem.sites.push(id);
+      const c = this.cultures.byId(id);
+      if (!c) return;
+      const site = this.people().sites.find((x) => x.culture.id === id);
+      const home = c.home.id === sys.ref.id;
+      const old = site ? site.phase === "old ruins" : true;
+      const key = strHash(c.id + sys.ref.id);
+      const before = s.seen.ruin ?? 0;
+      const fresh = this.learn(c, "ruins");
+      const worth = CIV.RUIN_ARCHIVE[home ? "home" : "outpost"] * (old ? CIV.RUIN_OLD : 1) * (fresh ? 1 : 0.6) * (before === 0 ? TUNE.FIRST_BONUS : 1);
+      const credit = Math.max(1, Math.round(worth));
+      s.seen.ruin = before + 1;
+      s.ship.archive += credit;
+      s.stats.finds++;
+      const found = renderFeature(sys, a.body, fill(ruinText(sys.bodies[a.body].kind, home, key), { who: c.name }), c.id);
+      this.good(`Day ${day}. Deep scan complete. ${found}${site ? ` Empty for ${roughly(s.tGal - site.since)}.` : ""}`);
+      if (fresh) this.text(`By their own account: ${c.sketch}`);
+      this.dim(`${old ? "Old ruins" : "Ruins"} of ${c.title}${home ? ", on their home world" : ""}. Archive +${credit}${before === 0 ? ", the first ruin read" : ""}.`);
+      this.note(`Read the ruins of ${c.title} at ${this.nameOf(sys.ref.id)}.`);
+      const roll = mix(s.seed, K.RELIC, strHash(c.id), strHash(sys.ref.id)) / 4294967296;
+      if (roll < CIV.RELIC[home ? "home" : "outpost"] * (old ? CIV.RUIN_OLD : 1)) {
+        const relic = relicFrom(c.genes, new Stream(s.seed, K.RELIC, strHash(c.id), strHash(sys.ref.id), 1));
+        s.ship.relics.push({ ...relic, of: c.name, t: s.tGal });
+        this.good(`The Wrights have brought something out of it: ${relic.what}.`);
+        this.note(`Took ${relic.what} from the ruins at ${this.nameOf(sys.ref.id)}.`);
+        this.say("relic");
+      } else if (fresh) {
+        this.say("ruin_read");
+      }
     }
     stay(arg) {
       const s = this.state;
@@ -2886,8 +3843,8 @@ input, textarea {
           this.text('How long? For example "stay 30", "stay 6w", "stay 3m" or "stay 1y".');
           return;
         }
-        const unit = m[2].toLowerCase();
-        const scale = unit.startsWith("y") ? DAYS : unit.startsWith("m") ? 30.4 : unit.startsWith("w") ? 7 : 1;
+        const unit2 = m[2].toLowerCase();
+        const scale = unit2.startsWith("y") ? DAYS : unit2.startsWith("m") ? 30.4 : unit2.startsWith("w") ? 7 : 1;
         days = Math.min(3653, Math.max(1, Math.round(Number(m[1]) * scale)));
       }
       if (auto && s.crews.every((c) => c === null)) {
@@ -2950,7 +3907,8 @@ input, textarea {
             }
             case "scan":
               if (a.days >= (a.need ?? 0)) {
-                this.finishScan(a, day);
+                if (a.site) this.finishRuin(a, day);
+                else this.finishScan(a, day);
                 s.crews[i] = null;
                 if (auto) stop = true;
               }
@@ -2984,9 +3942,12 @@ input, textarea {
         s.ship.hull = Math.max(TUNE.HULL_FLOOR, s.ship.hull - TUNE.AGE_WEAR / DAYS);
       }
       if (charted.length) this.text(`Charted: ${charted.join("; ")}.`);
+      const living = this.people().sites.filter((x) => x.alive);
+      const noted = this.mem.seen.filter((x) => isLiving(x.phase));
+      if (living.length !== noted.length || living.some((x) => !noted.some((n) => n.id === x.culture.id && n.phase === x.phase))) this.takeNote("stay");
       const parts = [`${passed} ${passed === 1 ? "day passes" : "days pass"}.`];
-      const change = (label, a, b, unit) => {
-        if (Math.round(a) !== Math.round(b)) parts.push(`${label} ${Math.round(a)} > ${Math.round(b)}${unit}.`);
+      const change = (label, a, b, unit2) => {
+        if (Math.round(a) !== Math.round(b)) parts.push(`${label} ${Math.round(a)} > ${Math.round(b)}${unit2}.`);
       };
       change("Fuel", before.fuel, this.fuelPct, "%");
       change("Shield", before.shield, s.ship.shield, "%");
@@ -3011,11 +3972,11 @@ input, textarea {
     }
     // ---- the chart and travel ----------------------------------------------
     /**
-     * The numbers behind a map: gas in a square grid around the ship, and the
-     * stars that fall inside it. The page draws these; a terminal shows the
-     * character map instead.
+     * The numbers behind a map: gas in a square grid around the ship, the stars
+     * that fall inside it, and any space somebody holds. The page
+     * draws these; a terminal shows the character map instead.
      */
-    picture(radius, stars) {
+    picture(zoom, radius, stars) {
       const here = this.here.ref;
       const size = MAP_SIZE;
       let gas = "";
@@ -3023,11 +3984,11 @@ input, textarea {
         for (let c = 0; c < size; c++) {
           const x = here.x + ((c + 0.5) / size * 2 - 1) * radius;
           const y = here.y + (1 - (r + 0.5) / size * 2) * radius;
-          gas += gasLevel(this.galaxy.gas(x, y));
+          gas += gasShade(this.galaxy.gas(x, y));
         }
       }
       const placed = [];
-      for (const { seen, n, odd } of stars) {
+      for (const { seen, n, odd, signal } of stars) {
         const dx = (seen.ref.x - here.x) / radius;
         const dy = (seen.ref.y - here.y) / radius;
         if (Math.abs(dx) >= 1 || Math.abs(dy) >= 1) continue;
@@ -3038,83 +3999,99 @@ input, textarea {
           size: seen.ref.stratum >= 3 ? 3 : seen.ref.stratum === 2 ? 2 : 1,
           n,
           visited: this.state.mem[seen.ref.id] ? true : void 0,
-          odd: odd || void 0
+          odd: odd || void 0,
+          signal: signal || void 0
         });
       }
-      return { size, radius, gas, stars: placed };
+      return {
+        size,
+        radius,
+        zoom,
+        gas,
+        stars: placed,
+        held: this.heldSpace(radius),
+        inner: zoom === "close" ? void 0 : size / 2 / ZOOM_STEP
+      };
     }
-    chart() {
+    /**
+     * The systems each spreading culture has something living in, as points in
+     * light-years from the ship (east and north positive). Only for cultures we
+     * have met, or whose home we can hear, and only as the light shows them.
+     * `within` leaves out those whose space cannot come that near.
+     */
+    heldPoints(within) {
       const s = this.state;
       const here = this.here.ref;
-      const optics = level(s, "optics");
-      const strata = this.galaxy.cfg.strata;
-      const seen = this.galaxy.near(here.x, here.y, optics).filter((x) => x.ref.id !== here.id);
-      if (!seen.length) {
-        this.text("Nothing in range of the telescopes. That should not happen inside the disc.");
-        return;
+      const known = /* @__PURE__ */ new Map();
+      for (const id of Object.keys(s.met)) {
+        const c = id.startsWith("R") ? this.cultures.byId(id) : null;
+        if (c) known.set(id, c);
       }
-      const listed = seen.slice(0, 9);
-      const add = (x) => {
-        if (x && !listed.includes(x)) listed.push(x);
-      };
-      const oddRange = 2 * strata[0].sight * optics;
-      seen.filter((x) => x.dist <= oddRange && this.unresolvedAnomaly(x.ref.id)).slice(0, 2).forEach(add);
-      seen.filter((x) => x.ref.stratum === 2 && !listed.includes(x)).slice(0, 2).forEach(add);
-      add(seen.find((x) => x.ref.stratum === 3 && !listed.includes(x)));
-      listed.sort((a, b) => a.dist - b.dist);
-      s.chart = listed.map((x) => x.ref.id);
-      const radius = Math.max(2, listed[Math.min(8, listed.length - 1)].dist * 1.15);
-      const cols = 41;
-      const rows = 13;
-      const grid = [];
-      for (let r = 0; r < rows; r++) {
-        const row = [];
-        for (let c = 0; c < cols; c++) {
-          const n = this.galaxy.gas(here.x + (c - 20) / 20 * radius, here.y + (6 - r) / 6 * radius);
-          row.push(n >= 10 ? "%" : n >= 1.2 ? ":" : " ");
+      for (const { site } of this.cultures.signals(here.x, here.y, s.tGal, HEARING)) {
+        if (site.kind === "home" && site.culture.reach) known.set(site.culture.id, site.culture);
+      }
+      const out = [];
+      for (const culture of known.values()) {
+        const reach = culture.reach.radius;
+        if (Math.hypot(culture.home.x - here.x, culture.home.y - here.y) - reach > within) continue;
+        const points = [];
+        for (const { ref } of this.galaxy.within(culture.home.x, culture.home.y, reach)) {
+          const light = Math.hypot(ref.x - here.x, ref.y - here.y);
+          if (this.cultures.holds(culture, this.systemAt(ref), s.tGal - light)) points.push({ x: ref.x - here.x, y: ref.y - here.y });
         }
-        grid.push(row);
+        if (points.length) out.push({ culture, points });
       }
-      const put = (x, ch) => {
-        const c = 20 + Math.round((x.ref.x - here.x) / radius * 20);
-        const r = 6 - Math.round((x.ref.y - here.y) / radius * 6);
-        if (r >= 0 && r < rows && c >= 0 && c < cols && (ch !== "." || " :%".includes(grid[r][c]))) grid[r][c] = ch;
-      };
-      for (const x of seen) if (x.dist <= radius * 1.2 && !listed.includes(x)) put(x, ".");
-      listed.forEach((x, i) => i < 9 && put(x, String(i + 1)));
-      grid[6][20] = "@";
-      const drawn = seen.filter((x) => !listed.includes(x)).map((x) => ({ seen: x })).concat(listed.map((x, i) => ({ seen: x, n: i + 1, odd: x.dist <= oddRange && this.unresolvedAnomaly(x.ref.id) })));
-      this.out.push({
-        k: "map",
-        s: [...grid.map((row) => row.join("").trimEnd()), `map: @ us, : dense gas, % cloud, edge at ${ly(radius)} ly`].join("\n"),
-        map: this.picture(radius, drawn)
-      });
-      const lines = [" #  system             ly g star  sees"];
-      const nearRange = strata[0].sight * optics;
-      listed.forEach((x, i) => {
-        const sys = this.system(x.ref.id);
-        const visited = this.state.mem[x.ref.id];
-        let sees = "?";
-        if (visited?.swept || x.dist <= nearRange) sees = `${"O".repeat(Math.min(3, sys.giants)) || "-"} ${"~".repeat(sys.dust) || "-"}`;
-        if (x.dist <= oddRange && this.unresolvedAnomaly(x.ref.id)) sees += " !";
-        const way = shade(planLeg(this.galaxy, here, x.ref, this.drive, 1).gasMean).replace(" ", "_");
-        lines.push(`${lpad(String(i + 1), 2)}${visited ? "*" : " "} ${pad(this.nameOf(x.ref.id), 15)}${lpad(ly(x.dist), 5)} ${way} ${pad(STARS[sys.star].code, 5)} ${sees}`);
-      });
-      this.pre(lines);
-      this.dim("g: gas on the way (_ void, . thin, : moderate, % dense, # cloud)");
-      this.dim("sees: O giants, ~ belts and comets, ! oddity, * been there");
-      const fancy = listed.findIndex((x) => this.system(x.ref.id).star === s.mind.fancy && !s.mem[x.ref.id]);
-      if (fancy >= 0 && !s.mind.said.includes(`fancy:${listed[fancy].ref.id}`)) {
-        s.mind.said.push(`fancy:${listed[fancy].ref.id}`);
-        this.say("fancy_seen", { kind: STARS[s.mind.fancy].name, dist: `${ly(listed[fancy].dist)} light-years`, n: fancy + 1 });
-      }
+      return out;
     }
-    /** The wider sky: where the gas is thick and thin, and the bright stars to steer by. */
-    gas() {
-      const s = this.state;
+    /**
+     * The space other people hold, for a map `radius` ly across: for each
+     * spreading culture, the convex hull of its systems with a little margin.
+     * One character per cell: '0' outside, '1' inside, '2' on the edge.
+     */
+    heldSpace(radius) {
+      const size = MAP_SIZE;
+      const perLy = size / (2 * radius);
+      const grid = new Uint8Array(size * size);
+      for (const { points } of this.heldPoints(radius * Math.SQRT2 + 3)) {
+        const cells = points.map((p) => ({ x: (p.x / radius + 1) * (size / 2), y: (1 - p.y / radius) * (size / 2) }));
+        drawPolygon(paddedHull(cells, Math.max(1.5 * perLy, 1.5)), size, grid);
+      }
+      return grid.some((v) => v > 0) ? Array.from(grid).join("") : void 0;
+    }
+    /** The same thing in words, for a chart `radius` ly across: whose space we are in, or how near it begins. */
+    heldWords(radius) {
+      const out = [];
+      for (const { culture, points } of this.heldPoints(radius)) {
+        const hull = paddedHull(points, 1.5);
+        const edge = nearestOnPolygon(hull, 0, 0);
+        const d = Math.hypot(edge.x, edge.y);
+        if (insidePolygon(hull, 0, 0)) out.push(`We are inside the space of ${culture.title}. Its nearest edge is ${ly(d)} ly to the ${compass(edge.x, edge.y)}.`);
+        else if (d <= radius) out.push(`The space of ${culture.title} begins ${ly(d)} ly to the ${compass(edge.x, edge.y)}.`);
+      }
+      return out;
+    }
+    /** Which of the listed stars the ship could reach on what is in the tanks, as a sentence. */
+    reachWords(listed) {
       const here = this.here.ref;
-      const optics = level(s, "optics");
-      const radius = 100 * optics;
+      const can = (x, thrust) => {
+        const c = this.cost(planLeg(this.galaxy, here, x.ref, this.drive, thrust));
+        return c.fuelAfter >= 0 && this.state.ship.hull - c.hullLoss >= TUNE.HULL_FLOOR;
+      };
+      const hard = [];
+      const eco = [];
+      const none = [];
+      listed.forEach((x, i) => (can(x, 1) ? hard : can(x, TUNE.ECO) ? eco : none).push(i + 1));
+      if (!none.length && !eco.length) return "On these tanks a hard burn reaches all of them.";
+      if (!hard.length && !eco.length) return "On these tanks none of them is in reach, even on economy.";
+      const parts = [];
+      if (hard.length) parts.push(`a hard burn reaches ${numberList(hard)}`);
+      if (eco.length) parts.push(`only economy reaches ${numberList(eco)}`);
+      if (none.length) parts.push(`${numberList(none)} ${none.length === 1 ? "is" : "are"} out of reach`);
+      return `On these tanks: ${parts.join("; ")}.`;
+    }
+    /** The same map in characters, for a terminal: 41 columns by 13 rows. */
+    sketch(zoom, radius, stars) {
+      const here = this.here.ref;
       const cols = 41;
       const rows = 13;
       const grid = [];
@@ -3122,43 +4099,115 @@ input, textarea {
         const row = [];
         for (let c = 0; c < cols; c++) {
           let n = 0;
-          for (const dr of [-0.33, 0, 0.33]) {
-            n = Math.max(n, this.galaxy.gas(here.x + (c - 20) / 20 * radius, here.y + (6 - r + dr) / 6 * radius));
-          }
-          row.push(shade(n));
+          for (const dr of [-0.33, 0, 0.33]) n = Math.max(n, this.galaxy.gas(here.x + (c - 20) / 20 * radius, here.y + (6 - r + dr) / 6 * radius));
+          row.push(zoom === "far" ? shade(n) : n >= 10 ? "%" : n >= 1.2 ? ":" : " ");
         }
         grid.push(row);
       }
-      const bright = this.galaxy.near(here.x, here.y, optics).filter((x) => x.ref.id !== here.id && x.ref.stratum >= 2 && x.dist <= radius).slice(0, 9);
-      bright.forEach((x, i) => {
-        const c = 20 + Math.round((x.ref.x - here.x) / radius * 20);
-        const r = 6 - Math.round((x.ref.y - here.y) / radius * 6);
-        if (r >= 0 && r < rows && c >= 0 && c < cols) grid[r][c] = String(i + 1);
-      });
+      const put = (seen, ch) => {
+        const c = 20 + Math.round((seen.ref.x - here.x) / radius * 20);
+        const r = 6 - Math.round((seen.ref.y - here.y) / radius * 6);
+        if (r >= 0 && r < rows && c >= 0 && c < cols && (ch !== "." || " :%".includes(grid[r][c]))) grid[r][c] = ch;
+      };
+      for (const pin of stars) if (!pin.n && (pin.signal || zoom === "close")) put(pin.seen, pin.signal ? "^" : ".");
+      for (const pin of stars) if (pin.n) put(pin.seen, pin.n <= 9 ? String(pin.n) : "*");
       grid[6][20] = "@";
-      this.out.push({
-        k: "map",
-        s: [
-          ...grid.map((row) => row.join("").trimEnd()),
-          `gas: blank void, . thin, : moderate, % dense, # cloud \xB7 @ us \xB7 edge at ${ly(radius)} ly`
-        ].join("\n"),
-        map: this.picture(radius, bright.map((x, i) => ({ seen: x, n: i + 1 })))
-      });
-      const lines = [];
-      if (bright.length) {
-        s.chart = bright.map((x) => x.ref.id);
-        lines.push(" #  system             ly star  way");
-        bright.forEach((x, i) => {
-          const sys = this.system(x.ref.id);
-          const leg = planLeg(this.galaxy, here, x.ref, this.drive, 1);
-          const way = `${Galaxy.gasWord(leg.gasMean)}${leg.gasMax >= 10 && leg.gasMean < 10 ? ", cloud" : ""}`;
-          lines.push(`${lpad(String(i + 1), 2)}${s.mem[x.ref.id] ? "*" : " "} ${pad(this.nameOf(x.ref.id), 15)}${lpad(ly(x.dist), 5)} ${pad(STARS[sys.star].code, 5)} ${way}`);
-        });
+      const key = zoom === "far" ? [` @ us \xB7 edge at ${ly(radius)} ly`, " gas  . thin  : moderate  % dense  # cloud"] : [` @ us \xB7 : dense \xB7 % cloud \xB7 edge ${ly(radius)} ly`];
+      return [...grid.map((row) => row.join("").trimEnd()), ...key].join("\n");
+    }
+    /**
+     * The sky around the ship, at one of three zooms that nest inside each
+     * other: `close` is the nearest stars, the plain chart is what stands out in
+     * a view four times wider, and `far` is the bright stars to steer by in a
+     * view four times wider again. Each lists what it numbers, and "plot" works
+     * on whichever list was shown last.
+     */
+    chart(arg) {
+      const s = this.state;
+      const here = this.here.ref;
+      const word = arg.trim().toLowerCase();
+      const zoom = word === "" ? "mid" : /^(c|close|near|in)$/.test(word) ? "close" : /^(f|far|wide|out)$/.test(word) ? "far" : /^(m|mid)$/.test(word) ? "mid" : null;
+      if (!zoom) {
+        this.text('Which chart? "chart close" for the nearest stars, "chart" for what stands out nearby, "chart far" for the wider sky.');
+        return;
       }
-      if (lines.length) this.pre(lines);
+      const optics = level(s, "optics");
+      const strata = this.galaxy.cfg.strata;
+      const seen = this.galaxy.near(here.x, here.y, optics).filter((x) => x.ref.id !== here.id);
+      if (!seen.length) {
+        this.text("Nothing in range of the telescopes. That should not happen inside the disc.");
+        return;
+      }
+      const base = roundUp(1.15 * seen[Math.min(8, seen.length - 1)].dist);
+      const radius = base * (zoom === "close" ? 1 : zoom === "mid" ? ZOOM_STEP : ZOOM_STEP * ZOOM_STEP);
+      const inner = zoom === "far" ? base * ZOOM_STEP : base;
+      const within = (x, half) => Math.abs(x.ref.x - here.x) < half && Math.abs(x.ref.y - here.y) < half;
+      const inView = (x) => within(x, radius);
+      const beyond = (x) => inView(x) && !within(x, inner);
+      const nearRange = strata[0].sight * optics;
+      const oddRange = 2 * nearRange;
+      const flagged = (x) => x.dist <= oddRange && this.unresolvedAnomaly(x.ref.id) || this.ruinsSeen(x, nearRange);
+      const voices = this.cultures.signals(here.x, here.y, s.tGal, HEARING).map((v) => v.seen);
+      const loud = new Set(voices.map((v) => v.ref.id));
+      const known = [...seen, ...voices.filter((v) => !seen.some((x) => x.ref.id === v.ref.id))].sort((a, b) => a.dist - b.dist);
+      const listed = [];
+      const add = (x) => {
+        if (x && !listed.some((y) => y.ref.id === x.ref.id)) listed.push(x);
+      };
+      if (zoom === "close") {
+        seen.slice(0, 9).forEach(add);
+      } else if (zoom === "mid") {
+        known.filter((x) => inView(x) && (loud.has(x.ref.id) || flagged(x) || x.ref.stratum >= 2)).slice(0, 12).forEach(add);
+        const fresh = seen.filter((x) => beyond(x) && !s.mem[x.ref.id]);
+        for (const x of fresh.filter((y) => y.ref.stratum === 1)) if (listed.length < 9) add(x);
+        for (const x of fresh) if (listed.length < 9) add(x);
+      } else {
+        seen.filter((x) => beyond(x) && x.ref.stratum >= 2).slice(0, 9).forEach(add);
+        known.filter((x) => beyond(x) && loud.has(x.ref.id)).slice(0, 3).forEach(add);
+        add(seen.find((x) => x.ref.stratum === 3 && !within(x, inner)));
+        for (const x of seen.filter((y) => beyond(y) && y.ref.stratum === 1)) if (listed.length < 9) add(x);
+      }
+      listed.sort((a, b) => a.dist - b.dist);
+      s.chart = listed.map((x) => x.ref.id);
+      this.lastZoom = zoom;
+      const pins = known.filter((x) => !listed.includes(x) && (zoom !== "far" || !within(x, inner) || loud.has(x.ref.id))).map((x) => ({ seen: x, signal: loud.has(x.ref.id), odd: zoom !== "far" && flagged(x) })).concat(listed.map((x, i) => ({ seen: x, n: i + 1, signal: loud.has(x.ref.id), odd: flagged(x) })));
+      this.out.push({ k: "map", s: this.sketch(zoom, radius, pins), map: this.picture(zoom, radius, pins) });
+      if (listed.length) {
+        const lines = [" #  system           ly g star  sees"];
+        listed.forEach((x, i) => {
+          const sys = this.system(x.ref.id);
+          const visited = s.mem[x.ref.id];
+          let sees = "?";
+          if (visited?.swept || x.dist <= nearRange) sees = `${"O".repeat(Math.min(3, sys.giants)) || "-"} ${"~".repeat(sys.dust) || "-"}`;
+          const marks = `${flagged(x) ? "!" : " "}${loud.has(x.ref.id) ? "^" : " "}`;
+          const leg = planLeg(this.galaxy, here, x.ref, this.drive, 1);
+          const way = leg.gasMax >= 10 ? "#" : shade(leg.gasMean).replace(" ", "_");
+          lines.push(
+            `${lpad(String(i + 1), 2)}${visited ? "*" : " "} ${pad(this.nameOf(x.ref.id), 14)}${lpad(ly(x.dist), 5)} ${way} ${pad(STARS[sys.star].code, 5)} ${pad(sees, 7)} ${marks}`.trimEnd()
+          );
+        });
+        this.pre(lines);
+        this.dim("g: gas on the way (_ void, . thin, : moderate, % dense, # a cloud across it)");
+        this.dim("sees: O giants, ~ belts and comets \xB7 ! worth a deep scan \xB7 ^ a signal \xB7 * been there");
+        this.dim(this.reachWords(listed));
+      }
+      for (const line of this.heldWords(radius)) this.dim(line);
       this.dim(
-        bright.length ? 'Thin gas is fast going; a cloud is a wall. These are the bright stars in range, and "plot" works on their numbers.' : `Thin gas is fast going; a cloud is a wall. No bright stars within ${ly(radius)} light-years.`
+        zoom === "close" ? `The nearest stars${listed.length ? "" : ": none in range"}. "chart" and "chart far" look further out.` : zoom === "mid" ? `What stands out within ${ly(radius)} light-years${listed.length ? "" : ": nothing"}. "chart close" lists the nearest stars; "chart far" shows the wider sky.` : `The bright stars to steer by${listed.length ? "" : `: none within ${ly(radius)} light-years`}. "chart" and "chart close" look nearer.`
       );
+      const voice = listed.findIndex((x) => loud.has(x.ref.id));
+      if (voice >= 0) this.sayOnce("signal_first", "signal_first", { n: voice + 1, light: spanWords(listed[voice].dist) });
+      const fancy = listed.findIndex((x) => this.system(x.ref.id).star === s.mind.fancy && !s.mem[x.ref.id]);
+      if (fancy >= 0 && !s.mind.said.includes(`fancy:${listed[fancy].ref.id}`)) {
+        s.mind.said.push(`fancy:${listed[fancy].ref.id}`);
+        this.say("fancy_seen", { kind: STARS[s.mind.fancy].name, dist: `${ly(listed[fancy].dist)} light-years`, n: fancy + 1 });
+      }
+    }
+    /** Ruins nobody has read, at a system close enough for the telescopes to pick them out. */
+    ruinsSeen(x, range) {
+      if (x.dist > range) return false;
+      const read2 = this.state.mem[x.ref.id]?.sites ?? [];
+      return this.cultures.presence(this.systemAt(x.ref), this.state.tGal).sites.some((site) => !site.alive && !read2.includes(site.culture.id));
     }
     /** A system with something odd in it that we have not yet resolved. */
     unresolvedAnomaly(id) {
@@ -3168,29 +4217,55 @@ input, textarea {
       if (!mem) return true;
       return sys.discoveries.some((d, i) => d.feature && d.feature.rarity >= 2 && (i >= mem.found || d.feature.hint !== void 0 && !mem.scanned.includes(d.feature.id)));
     }
+    /**
+     * The star a command is pointed at: a number from the last chart, or the
+     * name (or part of the name) of any star in sight.
+     */
     target(arg) {
       const s = this.state;
-      if (!s.chart.length) {
-        this.text("Pull up the chart first.");
+      const word = arg.trim();
+      if (word === "") {
+        this.text(s.chart.length ? `Which one? Give a number from the chart, 1 to ${s.chart.length}, or a name.` : "Which star? Pull up the chart, or give a name.");
         return null;
       }
-      const i = Number(arg) - 1;
-      if (arg === "" || !Number.isInteger(i) || !s.chart[i]) {
-        this.text(`Which one? Give a number from the chart, 1 to ${s.chart.length}.`);
-        return null;
+      if (/^\d+$/.test(word)) {
+        if (!s.chart.length) {
+          this.text("Pull up the chart first.");
+          return null;
+        }
+        const id = s.chart[Number(word) - 1];
+        if (!id) {
+          this.text(`Which one? Give a number from the chart, 1 to ${s.chart.length}, or a name.`);
+          return null;
+        }
+        return this.system(id);
       }
-      return this.system(s.chart[i]);
-    }
-    scope(arg) {
-      const sys = this.target(arg);
-      if (!sys) return;
-      const s = this.state;
       const here = this.here.ref;
-      const dist = Math.hypot(sys.ref.x - here.x, sys.ref.y - here.y);
+      const sight = [...this.galaxy.near(here.x, here.y, level(s, "optics")), ...this.cultures.signals(here.x, here.y, s.tGal, HEARING).map((v) => v.seen)];
+      const ids = [.../* @__PURE__ */ new Set([...s.chart, ...sight.map((x) => x.ref.id)])].filter((id) => id !== s.at);
+      const named = ids.map((id) => ({ id, name: this.nameOf(id).toLowerCase() }));
+      const want = word.toLowerCase();
+      let hits = named.filter((x) => x.name === want);
+      if (!hits.length) hits = named.filter((x) => x.name.startsWith(want));
+      if (!hits.length) hits = named.filter((x) => x.name.includes(want));
+      if (!hits.length) {
+        this.text(`No star in sight is called "${word}". The charts list the ones that are.`);
+        return null;
+      }
+      if (hits.length > 1) {
+        const some = hits.slice(0, 4).map((x) => this.nameOf(x.id)).join(", ");
+        this.text(`${hits.length} stars in sight match "${word}": ${some}${hits.length > 4 ? ", and more" : ""}. Give more of the name.`);
+        return null;
+      }
+      return this.system(hits[0].id);
+    }
+    /** What the telescopes and the radio make of a star from here. */
+    telescope(sys, dist) {
+      const s = this.state;
       const optics = level(s, "optics");
       const strata = this.galaxy.cfg.strata;
       const mem = s.mem[sys.ref.id];
-      const parts = [`${this.nameOf(sys.ref.id)}: ${starLine(sys)}, ${ly(dist)} light-years off. ${STARS[sys.star].text}`];
+      const parts = [`${this.nameOf(sys.ref.id)}: ${starLine(sys)}, ${ly(dist)} light-years off. ${this.starText(sys)}`];
       if (mem?.swept || dist <= strata[0].sight * optics) {
         const giants = sys.giants === 0 ? "No giants" : sys.giants === 1 ? "One giant" : `${sys.giants} giants`;
         const dust = ["no dust to speak of", "a little dust", "a fair infrared excess, so belts or comets", "a strong infrared excess: belts, comets or both"][sys.dust];
@@ -3201,12 +4276,19 @@ input, textarea {
       if (dist <= 2 * strata[0].sight * optics && this.unresolvedAnomaly(sys.ref.id)) {
         parts.push("And something in its light that I can't account for from here.");
       }
-      const leg = planLeg(this.galaxy, here, sys.ref, this.drive, 1);
-      parts.push(`The way there lies through ${Galaxy.gasWord(leg.gasMean)} gas${leg.gasMax >= 10 && leg.gasMean < 10 ? ", with a cloud across it" : ""}.`);
-      if (mem) parts.push(`We were there ${spanWords(s.tGal - mem.last)} ago.`);
-      this.text(parts.join(" "));
-      s.plot = sys.ref.id;
-      this.dim(`"plot ${arg}" for the cost of going.`);
+      if (this.ruinsSeen({ ref: sys.ref, dist }, strata[0].sight * optics)) {
+        parts.push("There are straight lines on one of its worlds, where geology makes none. Somebody built there, and is not there now.");
+      }
+      const voice = this.heard({ ref: sys.ref, dist });
+      if (voice) {
+        const who = s.met[voice.culture.id] ? `That is ${voice.culture.title}` : "Nobody we know";
+        parts.push(`There is radio from there, structured and ${spanWords(dist)} old. ${who}. Whether they are still there is another matter.`);
+      }
+      if (mem) {
+        const then = mem.seen.filter((x) => isLiving(x.phase) && s.met[x.id]).map((x) => s.met[x.id].title);
+        parts.push(`We were there ${spanWords(s.tGal - mem.last)} ago${then.length ? `; ${then.join(" and ")} lived there then` : ""}.`);
+      }
+      return parts.join(" ");
     }
     /** What a leg would cost and leave us with. */
     cost(leg) {
@@ -3234,6 +4316,7 @@ input, textarea {
       const ce = this.cost(eco);
       const time = (label, leg) => ` ${pad(label, 9)}${lpad(span(leg.ship), 8)}${lpad(span(leg.galaxy), 10)}`;
       const after = (label, c) => c.fuelAfter < 0 ? ` ${pad(label, 9)}  not enough fuel` : ` ${pad(label, 9)}${lpad(`${Math.round(c.fuelAfter)}%`, 6)}${lpad(`${Math.round(c.shieldAfter)}%`, 8)}${lpad(`${Math.max(0, Math.round(c.hullAfter))}%`, 7)}`;
+      this.text(this.telescope(sys, hard.dist));
       this.pre([
         ` to ${this.nameOf(sys.ref.id)} \xB7 ${ly(hard.dist)} ly \xB7 gas ${Galaxy.gasWord(hard.gasMean)}`,
         "",
@@ -3346,7 +4429,7 @@ input, textarea {
         known.visits++;
         known.last = s.tGal;
       } else {
-        s.mem[sys.ref.id] = { first: s.tGal, last: s.tGal, visits: 1, swept: false, effort: 0, found: 0, scanned: [] };
+        s.mem[sys.ref.id] = freshMemory(s.tGal);
         s.stats.systems++;
       }
       this.note(`${fromName} to ${this.nameOf(sys.ref.id)}, ${ly(leg.dist)} ly.`);
@@ -3354,8 +4437,14 @@ input, textarea {
       this.heading();
       if (!known) this.text(this.starText(sys));
       if (breach >= 0.5) this.out.push({ k: "alert", s: `The shield gave out on the way. Hull down ${Math.round(breach)} points.` });
-      if (known) this.say("revisit", { sys: this.nameOf(sys.ref.id), gap: spanWords(gap) });
-      else this.say("arrive", { light: spanWords(leg.dist), outside: spanWords(leg.galaxy) });
+      const spoken = this.out.filter((o) => o.k === "mind").length;
+      this.takeNote("arrive");
+      if (this.out.filter((o) => o.k === "mind").length === spoken) {
+        const { sites, claims } = this.people();
+        if (claims.length && !sites.some((x) => x.alive) && s.stats.systems % 2 === 0) this.say("civ_claim");
+        else if (known) this.say("revisit", { sys: this.nameOf(sys.ref.id), gap: spanWords(gap) });
+        else this.say("arrive", { light: spanWords(leg.dist), outside: spanWords(leg.galaxy) });
+      }
       const d = s.mind.dissent;
       if (d) {
         const lost = Math.round(d.hull - s.ship.hull);
@@ -3403,7 +4492,7 @@ input, textarea {
           case "ice":
             return `The shield wants ice, and ${where} has it. We're at ${Math.round(s.ship.shield)}%.`;
           case "scan":
-            return `${capital(where)} still has that oddity. A deep scan would settle it.`;
+            return this.scanTargets().find((t) => t.body === Number(n))?.site ? `Somebody built at ${where}. A deep scan would tell us who.` : `${capital(where)} still has that oddity. A deep scan would settle it.`;
           case "survey":
             return `The survey is ${Math.round(100 * this.mem.found / sys.discoveries.length)}% done. There's more here; it comes slower as we go.`;
           case "repair":
@@ -3453,10 +4542,13 @@ input, textarea {
         ` tanks ${level(s, "tanks")} burn-yr \xB7 optics x${level(s, "optics")}`,
         ` crews ${s.crews.length}`,
         ` cruise here: gamma ${cruiseGamma(this.drive, 1, n).toFixed(1)} in ${Galaxy.gasWord(n)} gas`,
-        ` ${s.stats.systems} systems \xB7 ${s.stats.jumps} jumps \xB7 ${Math.round(s.stats.ly)} ly`
+        ` ${s.stats.systems} ${s.stats.systems === 1 ? "system" : "systems"} \xB7 ${s.stats.jumps} ${s.stats.jumps === 1 ? "jump" : "jumps"} \xB7 ${Math.round(s.stats.ly)} ly`,
+        "",
+        ...this.refitLines()
       ];
-      if (s.ship.relics.length) lines.push(` aboard: ${s.ship.relics.join(", ")}`);
       this.pre(lines);
+      this.dim(`Knowledge in the Archive unlocks a refit; materials and a crew's time pay for it. "refit engine" starts one.`);
+      if (s.ship.relics.length) this.text(`In the hold, under lock: ${s.ship.relics.map(relicLabel).join("; ")}.`);
     }
     refitState(track) {
       const s = this.state;
@@ -3468,7 +4560,7 @@ input, textarea {
       if (s.ship.materials < cost.materials) return "materials";
       return "ready";
     }
-    refits() {
+    refitLines() {
       const s = this.state;
       const lines = [" refit    now > next   needs"];
       for (const track of Object.keys(REFITS)) {
@@ -3484,9 +4576,7 @@ input, textarea {
         lines.push(` ${pad(track, 8)} ${pad(`${info.levels[lv]} > ${info.levels[lv + 1]}`, 12)} ${flag}`);
         if (state === "ready") lines.push(`          costs ${cost.materials} mat, ${cost.days} days`);
       }
-      lines.push("", ` archive ${s.ship.archive} \xB7 materials ${Math.round(s.ship.materials)}`);
-      this.pre(lines);
-      this.dim(`Knowledge in the Archive unlocks a refit; materials and a crew's time pay for it. "refit engine" starts one.`);
+      return lines;
     }
     refit(arg) {
       const s = this.state;
@@ -3516,7 +4606,7 @@ input, textarea {
     finds() {
       const s = this.state;
       const lines = [];
-      for (const category of ["geology", "dynamics", "stellar", "life", "relic"]) {
+      for (const category of ["geology", "dynamics", "stellar", "life", "artefact"]) {
         const all = FEATURES.filter((f2) => f2.category === category);
         const got = all.filter((f2) => s.seen[f2.id]);
         lines.push(` ${pad(category, 9)} ${got.length} of ${all.length}`);
@@ -3524,7 +4614,13 @@ input, textarea {
       }
       const stars = Object.keys(STARS).filter((k) => s.seen[`star:${k}`]);
       lines.push(` ${pad("stars", 9)} ${stars.length} of ${Object.keys(STARS).length} kinds`);
+      const peoples = Object.values(s.met);
+      lines.push(` ${pad("peoples", 9)} ${peoples.length} known \xB7 ${s.seen.ruin ?? 0} ruins read`);
+      for (const m of peoples.slice(-12)) {
+        lines.push(`   ${pad(m.title.replace(/^the /, ""), 21)} ${pad(m.how, 5)} ${lpad(clock(m.t), 9)}`);
+      }
       this.pre(lines);
+      if (peoples.length) this.dim("Peoples: how we know them, and the year outside when we first did.");
     }
     rename(arg) {
       const name = arg.trim().replace(/[^\w' -]/g, "").slice(0, 16);
@@ -3544,27 +4640,28 @@ input, textarea {
         "",
         " here",
         "  sweep       first look at this system",
-        "  look        the system table again (map)",
-        "  ops         crews and the work on offer",
+        "  look        the system, and the crews",
+        "  ops         the work on offer here",
         "  scoop N     fuel from a giant (0 = star)",
         "  ice N       rebuild the shield",
         "  mine N      materials for the hold",
         "  survey      chart the system, slowly",
-        "  scan N      deep scan of an oddity (!)",
+        "  scan N      deep scan: oddity or ruin",
         "  repair      mend the hull with materials",
         "  recall N    free a crew",
         "  stay [30]   let days pass (d w m y)",
         " away",
-        "  chart       neighbouring systems",
-        "  gas         the wider sky, with its gas",
-        "  scope N     what the telescope sees",
-        "  plot N      what going there costs",
+        "  chart       what stands out nearby",
+        "  chart close the nearest stars",
+        "  chart far   the wider sky",
+        "  plot N      what is there, and the cost",
+        "              (a name works as well)",
         "  burn        go, at full thrust",
         "  burn eco    go gently: frugal and slow",
         " the ship",
         "  ask         what the Mind thinks",
-        "  ship        condition and clocks",
-        '  refits      upgrades, and "refit X"',
+        "  ship        condition, clocks, refits",
+        "  refit X     start a refit",
         "  log, finds  journal and catalogue",
         "  name X      name this system"
       ]);
@@ -3601,102 +4698,13 @@ input, textarea {
     const n = Number(fromQuery ?? fromHash ?? read("lightspeed.last") ?? DEMO.seed);
     return Number.isInteger(n) && n > 0 && n < 2 ** 31 ? n : DEMO.seed;
   }
-  var DIGITS = [
-    "111101101101111",
-    "010110010010111",
-    "111001111100111",
-    "111001111001111",
-    "101101111001001",
-    "111100111001111",
-    "111100111101111",
-    "111001001001001",
-    "111101111101111",
-    "111101111001111"
-  ];
-  function token(name) {
-    const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-    const hex = /^#([0-9a-f]{6})$/i.exec(raw)?.[1] ?? "808080";
-    return [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
-  }
-  var blend = (a, b, t) => `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(",")})`;
-  function drawMap(map) {
-    const canvas = document.createElement("canvas");
-    canvas.width = canvas.height = map.size;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-    const bg = token("--bg");
-    const ink = token("--ink");
-    const tones = { warm: token("--alert"), gold: token("--good"), white: ink, cold: token("--mind") };
-    const cells = (color, points) => {
-      ctx.fillStyle = color;
-      for (const [x, y] of points) ctx.fillRect(x, y, 1, 1);
-    };
-    const haze = [0, 0.12, 0.27, 0.45, 0.68].map((t) => blend(bg, token("--dim"), t));
-    for (let i = 0; i < map.gas.length; i++) cells(haze[Number(map.gas[i])], [[i % map.size, Math.floor(i / map.size)]]);
-    const m = map.size / 2;
-    const taken = [[m - 2, m - 2, m + 2, m + 2]];
-    const numbered = map.stars.filter((star) => star.n).sort((a, b) => (a.n ?? 0) - (b.n ?? 0));
-    for (const star of [...map.stars.filter((star2) => !star2.n), ...numbered]) {
-      const { x, y } = star;
-      const color = blend(bg, tones[star.tone], star.n ? 1 : 0.55);
-      cells(color, [[x, y]]);
-      if (star.size >= 2) cells(color, [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]]);
-      if (star.size >= 3) cells(color, [[x + 2, y], [x - 2, y], [x, y + 2], [x, y - 2]]);
-      if (star.visited) cells(blend(bg, ink, 0.55), [[x - 1, y + star.size + 1], [x, y + star.size + 1], [x + 1, y + star.size + 1]]);
-      if (star.odd) cells(blend(bg, tones.warm, 1), [[x - 3, y - 2], [x - 3, y - 1], [x - 3, y], [x - 3, y + 2]]);
-      if (star.n) taken.push([x - star.size, y - star.size, x + star.size, y + star.size]);
-    }
-    const clash = (box) => taken.some((t) => box[0] <= t[2] && box[2] >= t[0] && box[1] <= t[3] && box[3] >= t[1]);
-    for (const star of numbered) {
-      const text = String(star.n);
-      const width = text.length * 4 - 1;
-      const gap = star.size + 1;
-      const spots = [
-        [star.x + gap, star.y - 2],
-        [star.x - gap - width + 1, star.y - 2],
-        [star.x - Math.floor(width / 2), star.y - gap - 4],
-        [star.x - Math.floor(width / 2), star.y + gap],
-        [star.x + gap, star.y - gap - 4],
-        [star.x + gap, star.y + gap],
-        [star.x - gap - width + 1, star.y - gap - 4],
-        [star.x - gap - width + 1, star.y + gap]
-      ].map(([left2, top2]) => [Math.min(map.size - width - 1, Math.max(1, left2)), Math.min(map.size - 6, Math.max(1, top2))]);
-      const [left, top] = spots.find(([l, t]) => !clash([l, t, l + width - 1, t + 4])) ?? spots[0];
-      taken.push([left - 1, top - 1, left + width, top + 5]);
-      ctx.globalAlpha = 0.8;
-      ctx.fillStyle = blend(bg, bg, 0);
-      ctx.fillRect(left - 1, top - 1, width + 2, 7);
-      ctx.globalAlpha = 1;
-      [...text].forEach((digit, d) => {
-        const points = [];
-        [...DIGITS[Number(digit)]].forEach((on, i) => on === "1" && points.push([left + d * 4 + i % 3, top + Math.floor(i / 3)]));
-        cells(blend(bg, ink, 1), points);
-      });
-    }
-    cells(blend(bg, bg, 0), [[m, m]]);
-    cells(blend(bg, tones.cold, 1), [[m - 1, m - 1], [m, m - 1], [m + 1, m - 1], [m - 1, m], [m + 1, m], [m - 1, m + 1], [m, m + 1], [m + 1, m + 1]]);
-    canvas.setAttribute("role", "img");
-    canvas.setAttribute("aria-label", "Map of the sky around the ship");
-    return canvas;
-  }
   function print(items) {
     let first = null;
     for (const item of items) {
-      let el;
-      const picture = item.k === "map" && item.map ? drawMap(item.map) : null;
-      if (picture && item.map) {
-        el = document.createElement("figure");
-        el.className = "o map fresh";
-        const caption = document.createElement("figcaption");
-        const edge = item.map.radius < 10 ? item.map.radius.toFixed(1) : Math.round(item.map.radius);
-        caption.textContent = `edge at ${edge} ly \xB7 haze is gas, stronger is thicker \xB7 the hollow square is us`;
-        el.append(picture, caption);
-      } else {
-        const block = item.k === "pre" || item.k === "map";
-        el = document.createElement(block ? "pre" : "p");
-        el.className = `o ${block ? "pre" : item.k} fresh`;
-        el.textContent = item.s;
-      }
+      const block = item.k === "pre" || item.k === "map";
+      const el = document.createElement(block ? "pre" : "p");
+      el.className = `o ${block ? "pre" : item.k} fresh`;
+      el.textContent = item.s;
       log.appendChild(el);
       first ?? (first = el);
     }
@@ -3744,18 +4752,21 @@ input, textarea {
     log.replaceChildren();
     const saved = fresh ? null : read(slot(seed));
     let resumed = false;
+    let outdated = false;
     if (saved) {
       try {
         game = Game.load(saved);
         resumed = true;
-      } catch {
+      } catch (error) {
+        outdated = String(error).includes("older version");
       }
     }
     if (resumed) {
       print([{ k: "dim", s: "Voyage resumed." }, ...game.exec("look").slice(1)]);
     } else {
       game = Game.fresh(seed);
-      print(game.intro());
+      const notice = outdated ? [{ k: "dim", s: "The galaxy has changed since your last voyage was saved, so that one could not be resumed. This is a new one." }] : [];
+      print([...notice, ...game.intro()]);
       write(slot(seed), game.save());
     }
     write("lightspeed.last", String(seed));
@@ -3799,8 +4810,8 @@ input, textarea {
       log.replaceChildren();
       print([{ k: "dim", s: "Voyage loaded." }, ...game.exec("look").slice(1)]);
       refresh();
-    } catch {
-      note.textContent = "That text is not a save from this game. Check that all of it was pasted.";
+    } catch (error) {
+      note.textContent = String(error).includes("older version") ? "That save is from an older version of the game, and the galaxy has changed since." : "That text is not a save from this game. Check that all of it was pasted.";
     }
   });
   $("begin").addEventListener("click", (event) => {
