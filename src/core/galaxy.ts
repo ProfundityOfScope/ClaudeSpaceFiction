@@ -325,6 +325,35 @@ export class Galaxy {
     return out;
   }
 
+  /** Every system within `radius` of a point, whatever its brightness, nearest first. */
+  within(x: number, y: number, radius: number): Seen[] {
+    const { strata } = this.cfg;
+    const out: Seen[] = [];
+    for (let s = 0; s < strata.length; s++) {
+      const size = strata[s].cell;
+      for (let cx = Math.floor((x - radius) / size); cx <= Math.floor((x + radius) / size); cx++) {
+        for (let cy = Math.floor((y - radius) / size); cy <= Math.floor((y + radius) / size); cy++) {
+          for (const ref of this.fieldCell(s, cx, cy)) {
+            const dist = Math.hypot(ref.x - x, ref.y - y);
+            if (dist <= radius) out.push({ ref, dist });
+          }
+        }
+      }
+    }
+    const far = radius + 150;
+    for (const { cluster, ccx, ccy, i } of this.clustersIn(x - far, y - far, x + far, y + far)) {
+      if (Math.hypot(cluster.x - x, cluster.y - y) - 5 * cluster.sigma > radius) continue;
+      for (let s = 0; s < strata.length; s++) {
+        for (const ref of this.clusterMembers(ccx, ccy, i, s)) {
+          const dist = Math.hypot(ref.x - x, ref.y - y);
+          if (dist <= radius) out.push({ ref, dist });
+        }
+      }
+    }
+    out.sort((a, b) => a.dist - b.dist);
+    return out;
+  }
+
   /** Find a system again from its id. */
   ref(id: string): SysRef | null {
     const parts = id.slice(1).split('.').map(Number);

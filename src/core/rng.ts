@@ -24,6 +24,12 @@ export const K = {
   SECTOR: 11,
   NOISE: 12,
   START: 13,
+  WORLD: 14,
+  REACH: 15,
+  CULTURE: 16,
+  SPECIES: 17,
+  HOLD: 18,
+  RELIC: 19,
 } as const;
 
 function fmix(h: number): number {

@@ -4,16 +4,18 @@
  * `Game` knows nothing about screens. The web page and the headless tools
  * both drive it through `exec`, `status` and `chips`.
  */
-import { DAYS, DEMO, REFITS, TUNE, refitCost, type GalaxyConfig, type RefitTrack } from './config.ts';
-import { Galaxy, type Seen } from './galaxy.ts';
+import { CIV, DAYS, DEMO, REFITS, TUNE, refitCost, type GalaxyConfig, type RefitTrack } from './config.ts';
+import { Galaxy, type Seen, type SysRef } from './galaxy.ts';
 import { STARS, bodyLabel, bodyRef, generateSystem, renderFeature, starLine, type Body, type Discovery, type StarKind, type StarSystem } from './system.ts';
-import { FEATURES, RARITY_WORD } from './features.ts';
+import { FEATURES, FEATURE_BY_ID, RARITY_WORD, type FeatureDef } from './features.ts';
+import { Cultures, HEARING, frontier, isLiving, type Culture, type Phase, type Presence, type Site } from './civs.ts';
+import { relicFrom, relicLabel, ruinHint, ruinText, settledText } from './cultures.ts';
 import { cruiseGamma, planLeg, type Leg } from './travel.ts';
 import { GUIDE, fill, speak } from './mind.ts';
-import { strHash } from './rng.ts';
+import { K, Stream, mix, strHash } from './rng.ts';
 import { MIND_NAMES } from './words.ts';
 import { capital, clock, gauge, lpad, ly, pad, span, spanWords } from './format.ts';
-import { freshState, level, type Assignment, type Memory, type Op, type State } from './state.ts';
+import { SAVE_VERSION, freshMemory, freshState, level, type Assignment, type Memory, type Op, type SiteNote, type State } from './state.ts';
 
 /** echo: the player's own line. pre: fixed-width block. mind: the ship speaking. */
 export type OutKind = 'echo' | 'text' | 'pre' | 'mind' | 'head' | 'dim' | 'good' | 'alert' | 'map';
@@ -32,6 +34,8 @@ export interface MapData {
   /** Gas in each cell, row by row from the top: a digit from 0 (void) to 4 (cloud). */
   gas: string;
   stars: MapStar[];
+  /** The space some culture is known to hold: a circle, in cells. */
+  rings?: { x: number; y: number; r: number }[];
 }
 
 export interface MapStar {
@@ -46,6 +50,8 @@ export interface MapStar {
   n?: number;
   visited?: boolean;
   odd?: boolean;
+  /** Somebody is broadcasting from there. */
+  signal?: boolean;
 }
 
 const MAP_SIZE = 64;
@@ -67,6 +73,31 @@ export interface Status {
   materials: number;
   hold: number;
   archive: number;
+}
+
+/** How a culture's phase reads in a sentence: "they are ...". */
+const PHASE_WORD: Record<Phase, string> = {
+  founding: 'newly risen',
+  rising: 'rising',
+  height: 'at their height',
+  decline: 'in decline',
+  ruins: 'gone',
+  'old ruins': 'long gone',
+};
+
+/** A length of time, rounded the way one talks about the dead: "about 1,400 years". */
+function roughly(years: number): string {
+  const digits = Math.max(0, Math.floor(Math.log10(Math.max(1, years))) - 1);
+  const unit = 10 ** digits;
+  return `about ${(Math.max(1, Math.round(years / unit)) * unit).toLocaleString('en-US')} years`;
+}
+
+/** Something a deep scan can be pointed at: an oddity the survey flagged, or a ruin. */
+interface ScanTarget {
+  body: number;
+  days: number;
+  feature?: FeatureDef;
+  site?: Site;
 }
 
 const PLUS = ['', '', '+', '++'];
@@ -104,6 +135,7 @@ const shade = (n: number) => ' .:%#'[gasLevel(n)];
 
 export class Game {
   readonly galaxy: Galaxy;
+  readonly cultures: Cultures;
   state: State;
   private systems = new Map<string, StarSystem>();
   private out: Out[] = [];
@@ -112,6 +144,7 @@ export class Game {
 
   constructor(state: State, cfg: GalaxyConfig = DEMO) {
     this.galaxy = new Galaxy({ ...cfg, seed: state.seed });
+    this.cultures = new Cultures(this.galaxy, (ref) => this.systemAt(ref));
     this.state = state;
   }
 
@@ -122,7 +155,8 @@ export class Game {
 
   static load(text: string, cfg: GalaxyConfig = DEMO): Game {
     const state = JSON.parse(text) as State;
-    if (state.v !== 1 || typeof state.seed !== 'number' || !state.ship || !state.mem) throw new Error('not a save from this game');
+    if (typeof state.v === 'number' && state.v < SAVE_VERSION) throw new Error('a save from an older version');
+    if (state.v !== SAVE_VERSION || typeof state.seed !== 'number' || !state.ship || !state.mem) throw new Error('not a save from this game');
     const game = new Game(state, cfg);
     if (!game.galaxy.ref(state.at)) throw new Error('save points at a system that does not exist');
     return game;
@@ -134,16 +168,32 @@ export class Game {
 
   // ---- small accessors ----------------------------------------------------
 
-  private system(id: string): StarSystem {
-    let sys = this.systems.get(id);
+  private systemAt(ref: SysRef): StarSystem {
+    let sys = this.systems.get(ref.id);
     if (!sys) {
-      const ref = this.galaxy.ref(id);
-      if (!ref) throw new Error(`unknown system ${id}`);
       sys = generateSystem(this.galaxy, ref);
-      if (this.systems.size > 4000) this.systems.clear();
-      this.systems.set(id, sys);
+      if (this.systems.size > 12000) this.systems.clear();
+      this.systems.set(ref.id, sys);
     }
     return sys;
+  }
+
+  private system(id: string): StarSystem {
+    const hit = this.systems.get(id);
+    if (hit) return hit;
+    const ref = this.galaxy.ref(id);
+    if (!ref) throw new Error(`unknown system ${id}`);
+    return this.systemAt(ref);
+  }
+
+  /** Who is at a system right now. Defaults to the one we are in. */
+  people(id: string = this.state.at): Presence {
+    return this.cultures.presence(this.system(id), this.state.tGal);
+  }
+
+  /** What the light from a system shows of anyone living there, if their radio carries this far. */
+  private heard(seen: Seen): Site | null {
+    return seen.dist <= HEARING ? this.cultures.heard(this.systemAt(seen.ref), this.state.tGal, seen.dist) : null;
   }
 
   get here(): StarSystem {
@@ -361,6 +411,24 @@ export class Game {
       .filter((d) => d.feature?.hint && !this.mem.scanned.includes(d.feature.id));
   }
 
+  /** Bodies that are somebody's living home. We take nothing from those. */
+  private homes(): Set<number> {
+    return new Set(this.people().sites.filter((x) => x.alive && x.kind === 'home').map((x) => x.body));
+  }
+
+  /** Ruins here that nobody has read yet. They only show once the system has been swept. */
+  private ruins(): Site[] {
+    if (!this.mem.swept) return [];
+    return this.people().sites.filter((x) => !x.alive && !this.mem.sites.includes(x.culture.id));
+  }
+
+  /** Everything here that a deep scan could be pointed at. */
+  private scanTargets(): ScanTarget[] {
+    const out: ScanTarget[] = this.hints().map((d) => ({ body: d.body, days: TUNE.SCAN_DAYS[d.feature!.rarity], feature: d.feature }));
+    for (const site of this.ruins()) out.push({ body: site.body, days: site.kind === 'home' ? CIV.DIG_HOME : CIV.DIG_OUTPOST, site });
+    return out;
+  }
+
   private workWords(b: Body): string {
     if (b.kind === 'star') return STARS[this.here.star].wind ? 'wind' : '-';
     const mark = (r: number) => (this.charted(b.n) ? PLUS[r] : '?');
@@ -374,7 +442,8 @@ export class Game {
 
   private systemTable(): string[] {
     const sys = this.here;
-    const hinted = new Set(this.hints().map((d) => d.body));
+    const hinted = new Set(this.scanTargets().map((t) => t.body));
+    const lived = new Set(this.people().sites.filter((x) => x.alive).map((x) => x.body));
     const glyph: Record<string, string> = {
       star: '*', scorched: '.', rocky: 'o', desert: 'o', ocean: 'o', ice: 'o', dwarf: '.',
       gas: 'O', icegiant: 'O', belt: ':::', comets: "' ' '",
@@ -391,7 +460,8 @@ export class Game {
     const lines = [strip.trimEnd(), index.trimEnd(), '', ' #  body                  au  work'];
     for (const b of sys.bodies) {
       const au = b.n === 0 ? '-' : b.au < 1 ? b.au.toFixed(2) : b.au < 10 ? b.au.toFixed(1) : String(Math.round(b.au));
-      lines.push(`${lpad(String(b.n), 2)}${hinted.has(b.n) ? '!' : ' '} ${pad(bodyLabel(b), 19)}${lpad(au, 5)}  ${this.workWords(b)}`);
+      const mark = hinted.has(b.n) ? '!' : lived.has(b.n) ? '^' : ' ';
+      lines.push(`${lpad(String(b.n), 2)}${mark} ${pad(bodyLabel(b), 19)}${lpad(au, 5)}  ${this.workWords(b)}`);
     }
     return lines;
   }
@@ -409,7 +479,149 @@ export class Game {
     const feh = `${sys.feh >= 0 ? '+' : '-'}${Math.abs(sys.feh).toFixed(2)}`;
     this.out.push({ k: 'head', s: `${this.nameOf(sys.ref.id).toUpperCase()} · ${starLine(sys)}` });
     this.dim(`${place} · gas ${Galaxy.gasWord(this.galaxy.gas(sys.ref.x, sys.ref.y))} · [Fe/H] ${feh}`);
+    const who = this.whoLine();
+    if (who) this.dim(who);
   }
+
+  /** One line on who is here now, for the heading. */
+  private whoLine(): string | null {
+    const { sites, claims } = this.people();
+    const parts: string[] = [];
+    const here = new Set<string>();
+    for (const site of sites) {
+      if (!site.alive) continue;
+      here.add(site.culture.id);
+      parts.push(site.kind === 'home' ? `home of ${site.culture.title}, ${PHASE_WORD[site.phase]}` : `an outpost of ${site.culture.title}`);
+    }
+    for (const c of claims) if (!here.has(c.id)) parts.push(`inside the space of ${c.title}`);
+    return parts.length ? capital(parts.join(' · ')) : null;
+  }
+
+  // ---- other people ------------------------------------------------------
+
+  /** Add a culture to those we know of. True if this is the first we have known of them in this way. */
+  private learn(c: Culture, how: 'met' | 'ruins'): boolean {
+    const s = this.state;
+    const known = s.met[c.id];
+    if (!known) {
+      s.met[c.id] = { title: c.title, home: c.home.id, t: s.tGal, how };
+      return true;
+    }
+    if (how === 'met' && known.how === 'ruins') {
+      known.how = 'met';
+      return true;
+    }
+    return false;
+  }
+
+  /** Describe a living site, and take note of its people if they are new to us. */
+  private meet(site: Site, back: boolean) {
+    const s = this.state;
+    const sys = this.here;
+    const c = site.culture;
+    const n = strHash(c.id + sys.ref.id);
+    const kind = sys.bodies[site.body].kind;
+    const where = capital(bodyRef(sys, site.body));
+    const since = back ? ' They were not here when we last came.' : '';
+    if (site.kind === 'home') {
+      const extent = frontier(c, s.tGal);
+      const holds = extent >= 1 ? ` Their space runs ${ly(extent)} light-years out from here.` : '';
+      this.text(`${where}: ${settledText(kind, true, n)}. Somebody is home: ${c.title}, ${PHASE_WORD[site.phase]}.${holds}${since}`);
+    } else {
+      const d = Math.hypot(c.home.x - sys.ref.x, c.home.y - sys.ref.y);
+      this.text(`${where}: ${settledText(kind, false, n)}. An outpost of ${c.title}, whose home is ${this.nameOf(c.home.id)}, ${ly(d)} light-years off.${since}`);
+    }
+    // The same world can raise the same people again under another name.
+    const kin = Object.entries(s.met).find(([id, m]) => id !== c.id && m.home === c.home.id)?.[1];
+    if (!this.learn(c, 'met')) return;
+    const first = !s.mind.said.includes('civ_first');
+    this.text(kin ? `The same people we know as ${kin.title}, under a newer name.` : c.sketch);
+    const credit = CIV.MEET_ARCHIVE * (c.reach ? 2 : 1) * (first ? 2 : 1);
+    s.ship.archive += credit;
+    this.good(`${capital(c.title)}: a people new to the Archive. (+${credit})`);
+    this.note(`Met ${c.title} at ${this.nameOf(sys.ref.id)}.`);
+    if (first) {
+      this.sayOnce('civ_first', 'civ_first');
+      this.dim('For now they can only be watched. Dealing with them comes in a later build.');
+    } else {
+      this.say(kin ? 'civ_same' : back ? 'civ_new' : site.kind === 'outpost' ? 'civ_outpost' : 'civ_arrive');
+    }
+  }
+
+  /** Point out a ruin the sweep has picked up. Whose it was takes a deep scan. */
+  private noticeRuin(site: Site) {
+    const s = this.state;
+    const sys = this.here;
+    const hint = ruinHint(sys.bodies[site.body].kind, strHash(site.culture.id + sys.ref.id));
+    this.out.push({ k: 'alert', s: renderFeature(sys, site.body, hint, site.culture.id) });
+    this.dim(`"scan ${site.body}" would say whose it was, in about ${site.kind === 'home' ? CIV.DIG_HOME : CIV.DIG_OUTPOST} days.`);
+    if (s.visit.ruins) return;
+    s.visit.ruins = true;
+    // The Mind remarks on the first ruin ever, and on about half of those after.
+    if (!s.mind.said.includes('ruin_first')) this.sayOnce('ruin_first', 'civ_ruins');
+    else if (s.stats.systems % 2 === 0) this.say('civ_ruins');
+  }
+
+  /**
+   * Take stock of who is here: say what has become of those we knew, greet
+   * anyone new, and point out ruins once the system has been swept. What we
+   * see is remembered, so that the next visit can tell the difference.
+   *
+   * `when` is the occasion: arriving, the first sweep, or the end of a stay
+   * during which something changed.
+   */
+  private takeNote(when: 'arrive' | 'sweep' | 'stay') {
+    const s = this.state;
+    const sys = this.here;
+    const mem = this.mem;
+    const now = this.people();
+    const before = mem.seen;
+    const back = when === 'arrive' && mem.visits > 1;
+    const name = this.nameOf(sys.ref.id);
+    if (when !== 'sweep') {
+      let weathered = false;
+      for (const note of before) {
+        const site = now.sites.find((x) => x.culture.id === note.id);
+        const title = s.met[note.id]?.title;
+        if (!isLiving(note.phase)) {
+          weathered ||= !site;
+        } else if (!title) {
+          continue;
+        } else if (!site) {
+          this.out.push({ k: 'alert', s: `Nothing is left of ${title}. Not a wall, not a signal.` });
+          this.note(`${capital(title)} were gone from ${name} when we came back.`);
+          this.say('civ_gone');
+        } else if (!site.alive) {
+          this.out.push({
+            k: 'alert',
+            s: `${capital(title)} are gone. What they built still stands on ${bodyRef(sys, site.body)}, empty for ${roughly(s.tGal - site.since)}.`,
+          });
+          this.note(when === 'stay' ? `${capital(title)} ended at ${name} while we were in orbit.` : `${capital(title)} were gone from ${name} when we came back.`);
+          this.say('civ_gone');
+        } else if (site.phase !== note.phase) {
+          this.text(`${capital(title)} were ${PHASE_WORD[note.phase]} when we ${when === 'stay' ? 'arrived' : 'were last here'}. They are ${PHASE_WORD[site.phase]} now.`);
+        } else if (when === 'arrive') {
+          this.text(`${capital(title)} are still here, ${PHASE_WORD[site.phase]}.`);
+        }
+      }
+      if (weathered) this.dim('The ruins we logged here have weathered away to nothing.');
+    }
+    const notes: SiteNote[] = [];
+    for (const site of now.sites) {
+      const known = before.find((note) => note.id === site.culture.id);
+      if (site.alive) {
+        if (!known) this.meet(site, back);
+      } else if (!known) {
+        // Ruins nobody has pointed out yet: only a swept system shows them.
+        if (!mem.swept) continue;
+        if (!mem.sites.includes(site.culture.id)) this.noticeRuin(site);
+      }
+      notes.push({ id: site.culture.id, phase: site.phase });
+    }
+    mem.seen = notes;
+  }
+
+  // ---- looking, continued -------------------------------------------------
 
   private look() {
     const sys = this.here;
@@ -420,7 +632,10 @@ export class Game {
     }
     this.pre(this.systemTable());
     const k = sys.discoveries.length;
-    if (k) this.dim(`survey ${Math.round((100 * this.mem.found) / k)}% · ! marks something worth a deep scan`);
+    const lived = this.people().sites.some((x) => x.alive);
+    const legend = [`survey ${k ? Math.round((100 * this.mem.found) / k) : 100}%`, '! marks something worth a deep scan'];
+    if (lived) legend.push('^ somebody lives there');
+    if (k || lived || this.scanTargets().length) this.dim(legend.join(' · '));
   }
 
   private sweep() {
@@ -445,6 +660,7 @@ export class Game {
     s.ship.archive += credit;
     const bodies = sys.bodies.length - 1;
     this.dim(`${bodies === 0 ? 'No bodies' : bodies === 1 ? 'One body' : `${bodies} bodies`} resolved. Archive +${credit}. A survey would say what they are worth.`);
+    this.takeNote('sweep');
 
     const has = (f: (b: Body) => boolean) => sys.bodies.some(f);
     if (sys.anomaly) this.say('sweep_anomaly');
@@ -499,8 +715,9 @@ export class Game {
     const s = this.state;
     if (!this.mem.swept) return [];
     const busy = (op: Op, body = -1) => s.crews.some((c) => c && c.op === op && (body < 0 || c.body === body));
+    const homes = this.homes();
     const best = (key: 'fuel' | 'ice' | 'ore') =>
-      sys.bodies.filter((b) => b[key] > 0).sort((a, b) => b[key] - a[key])[0];
+      sys.bodies.filter((b) => b[key] > 0 && !homes.has(b.n)).sort((a, b) => b[key] - a[key])[0];
     const jobs: string[] = [];
     const giant = best('fuel');
     if (this.fuelPct < 90 && !busy('scoop')) {
@@ -509,7 +726,7 @@ export class Game {
     }
     const ice = best('ice');
     if (ice && s.ship.shield < 90 && !busy('ice')) jobs.push(`ice ${ice.n}`);
-    for (const d of this.hints()) if (!busy('scan', d.body)) jobs.push(`scan ${d.body}`);
+    for (const body of new Set(this.scanTargets().map((t) => t.body))) if (!busy('scan', body)) jobs.push(`scan ${body}`);
     if (this.mem.found < sys.discoveries.length && !busy('survey')) jobs.push('survey');
     if (s.ship.hull < 85 && s.ship.materials >= 5 && !busy('repair')) jobs.push('repair');
     const ore = best('ore');
@@ -527,18 +744,19 @@ export class Game {
     const lines: string[] = [];
     s.crews.forEach((c, i) => lines.push(` crew ${i + 1}  ${c ? this.describe(c) : 'idle'}`));
     lines.push('', ' work here');
-    for (const b of sys.bodies) {
+    const open = sys.bodies.filter((b) => !this.homes().has(b.n));
+    for (const b of open) {
       const rate = this.scoopRate(b);
       if (b.kind === 'star' ? STARS[sys.star].wind : b.fuel > 0) {
         lines.push(`  ${pad(`scoop ${b.n}`, 9)} fuel +${rate}%/day${b.kind === 'star' ? ' (wind)' : ''}`);
       }
     }
-    for (const b of sys.bodies) if (b.ice) lines.push(`  ${pad(`ice ${b.n}`, 9)} shield +${TUNE.ICE[b.ice]}%/day`);
-    for (const b of sys.bodies) if (b.ore) lines.push(`  ${pad(`mine ${b.n}`, 9)} materials +${TUNE.ORE[b.ore]}/day`);
+    for (const b of open) if (b.ice) lines.push(`  ${pad(`ice ${b.n}`, 9)} shield +${TUNE.ICE[b.ice]}%/day`);
+    for (const b of open) if (b.ore) lines.push(`  ${pad(`mine ${b.n}`, 9)} materials +${TUNE.ORE[b.ore]}/day`);
     const total = sys.discoveries.length;
     if (total) lines.push(`  ${pad('survey', 9)} ${Math.round((100 * this.mem.found) / total)}% done`);
-    for (const d of this.hints()) {
-      lines.push(`  ${pad(`scan ${d.body}`, 9)} oddity, ~${TUNE.SCAN_DAYS[d.feature!.rarity]} days`);
+    for (const t of this.scanTargets()) {
+      lines.push(`  ${pad(`scan ${t.body}`, 9)} ${t.site ? 'ruins' : 'oddity'}, ~${t.days} days`);
     }
     if (s.ship.hull < 99.5) lines.push(`  ${pad('repair', 9)} hull ${Math.round(s.ship.hull)}%, ${TUNE.REPAIR_COST} mat per %`);
     this.pre(lines);
@@ -571,6 +789,10 @@ export class Game {
         return;
       }
       const ref = bodyRef(sys, body);
+      if (op !== 'scan' && this.homes().has(body)) {
+        this.text(`${capital(ref)} is somebody's home. We take nothing from it.`);
+        return;
+      }
       if (op === 'scoop' && !(b.kind === 'star' ? STARS[sys.star].wind : b.fuel > 0)) {
         this.text(`There is nothing to scoop at ${ref}.`);
         return;
@@ -584,13 +806,14 @@ export class Game {
         return;
       }
       if (op === 'scan') {
-        const hint = this.hints().find((d) => d.body === body);
-        if (!hint) {
+        const target = this.scanTargets().find((t) => t.body === body);
+        if (!target) {
           this.text(`Nothing at ${ref} asks for a deep scan. The survey flags what does.`);
           return;
         }
-        job.feature = hint.feature!.id;
-        job.need = TUNE.SCAN_DAYS[hint.feature!.rarity];
+        if (target.site) job.site = target.site.culture.id;
+        else job.feature = target.feature!.id;
+        job.need = target.days;
       }
       job.body = body;
     }
@@ -684,7 +907,7 @@ export class Game {
   private finishScan(a: Assignment, day: number) {
     const sys = this.here;
     const s = this.state;
-    const def = FEATURES.find((f) => f.id === a.feature)!;
+    const def = FEATURE_BY_ID[a.feature!];
     const before = s.seen[def.id] ?? 0;
     const share = TUNE.ARCHIVE[def.rarity] * (1 - TUNE.HINT_SHARE);
     const credit = Math.round(before === 0 ? share * TUNE.FIRST_BONUS : share);
@@ -699,9 +922,51 @@ export class Game {
         : `Day ${day}. Deep scan complete. ${renderFeature(sys, a.body, def.text, def.id)}`,
     );
     this.dim(`${capital(RARITY_WORD[def.rarity])} find. Archive +${credit}${before === 0 ? ', first of its kind' : ''}.`);
-    if (def.relic) s.ship.relics.push(def.relic);
-    if (!again) this.say(def.relic ? 'relic' : def.rarity === 3 ? 'find_exceptional' : 'find_rare');
+    // Now and then there is something small enough to bring away.
+    const relic = def.relic && mix(s.seed, K.RELIC, strHash(sys.ref.id), strHash(def.id)) / 4294967296 < def.relic.chance ? def.relic : null;
+    if (relic) {
+      s.ship.relics.push({ what: relic.what, kind: relic.kind, of: '', t: s.tGal });
+      this.good(`The Wrights have brought ${relic.what} aboard.`);
+    }
+    if (!again) this.say(relic ? 'relic' : def.rarity === 3 ? 'find_exceptional' : 'find_rare');
     this.note(`${capital(def.title)} at ${this.nameOf(sys.ref.id)}.`);
+  }
+
+  /** A crew has finished reading a ruin: whose it was, what it adds to the Archive, and now and then something to carry away. */
+  private finishRuin(a: Assignment, day: number) {
+    const s = this.state;
+    const sys = this.here;
+    const id = a.site!;
+    this.mem.sites.push(id);
+    const c = this.cultures.byId(id);
+    if (!c) return;
+    const site = this.people().sites.find((x) => x.culture.id === id);
+    const home = c.home.id === sys.ref.id;
+    const old = site ? site.phase === 'old ruins' : true;
+    const key = strHash(c.id + sys.ref.id);
+    const before = s.seen.ruin ?? 0;
+    const fresh = this.learn(c, 'ruins');
+    const worth = CIV.RUIN_ARCHIVE[home ? 'home' : 'outpost'] * (old ? CIV.RUIN_OLD : 1) * (fresh ? 1 : 0.6) * (before === 0 ? TUNE.FIRST_BONUS : 1);
+    const credit = Math.max(1, Math.round(worth));
+    s.seen.ruin = before + 1;
+    s.ship.archive += credit;
+    s.stats.finds++;
+    const found = renderFeature(sys, a.body, fill(ruinText(sys.bodies[a.body].kind, home, key), { who: c.name }), c.id);
+    this.good(`Day ${day}. Deep scan complete. ${found}${site ? ` Empty for ${roughly(s.tGal - site.since)}.` : ''}`);
+    if (fresh) this.text(`By their own account: ${c.sketch}`);
+    this.dim(`${old ? 'Old ruins' : 'Ruins'} of ${c.title}${home ? ', on their home world' : ''}. Archive +${credit}${before === 0 ? ', the first ruin read' : ''}.`);
+    this.note(`Read the ruins of ${c.title} at ${this.nameOf(sys.ref.id)}.`);
+    // The same ruin always holds the same thing, or nothing; old ones have less left.
+    const roll = mix(s.seed, K.RELIC, strHash(c.id), strHash(sys.ref.id)) / 4294967296;
+    if (roll < CIV.RELIC[home ? 'home' : 'outpost'] * (old ? CIV.RUIN_OLD : 1)) {
+      const relic = relicFrom(c.genes, new Stream(s.seed, K.RELIC, strHash(c.id), strHash(sys.ref.id), 1));
+      s.ship.relics.push({ ...relic, of: c.name, t: s.tGal });
+      this.good(`The Wrights have brought something out of it: ${relic.what}.`);
+      this.note(`Took ${relic.what} from the ruins at ${this.nameOf(sys.ref.id)}.`);
+      this.say('relic');
+    } else if (fresh) {
+      this.say('ruin_read');
+    }
   }
 
   private stay(arg: string) {
@@ -784,7 +1049,8 @@ export class Game {
           }
           case 'scan':
             if (a.days >= (a.need ?? 0)) {
-              this.finishScan(a, day);
+              if (a.site) this.finishRuin(a, day);
+              else this.finishScan(a, day);
               s.crews[i] = null;
               if (auto) stop = true;
             }
@@ -819,6 +1085,10 @@ export class Game {
     }
 
     if (charted.length) this.text(`Charted: ${charted.join('; ')}.`);
+    // Other people keep their own time. If the stay was long enough for them to change, say so.
+    const living = this.people().sites.filter((x) => x.alive);
+    const noted = this.mem.seen.filter((x) => isLiving(x.phase));
+    if (living.length !== noted.length || living.some((x) => !noted.some((n) => n.id === x.culture.id && n.phase === x.phase))) this.takeNote('stay');
     const parts: string[] = [`${passed} ${passed === 1 ? 'day passes' : 'days pass'}.`];
     const change = (label: string, a: number, b: number, unit: string) => {
       if (Math.round(a) !== Math.round(b)) parts.push(`${label} ${Math.round(a)} > ${Math.round(b)}${unit}.`);
@@ -853,7 +1123,7 @@ export class Game {
    * stars that fall inside it. The page draws these; a terminal shows the
    * character map instead.
    */
-  private picture(radius: number, stars: { seen: Seen; n?: number; odd?: boolean }[]): MapData {
+  private picture(radius: number, stars: { seen: Seen; n?: number; odd?: boolean; signal?: boolean }[], held: { ref: SysRef; r: number }[] = []): MapData {
     const here = this.here.ref;
     const size = MAP_SIZE;
     let gas = '';
@@ -865,7 +1135,7 @@ export class Game {
       }
     }
     const placed: MapStar[] = [];
-    for (const { seen, n, odd } of stars) {
+    for (const { seen, n, odd, signal } of stars) {
       const dx = (seen.ref.x - here.x) / radius;
       const dy = (seen.ref.y - here.y) / radius;
       if (Math.abs(dx) >= 1 || Math.abs(dy) >= 1) continue;
@@ -877,9 +1147,15 @@ export class Game {
         n,
         visited: this.state.mem[seen.ref.id] ? true : undefined,
         odd: odd || undefined,
+        signal: signal || undefined,
       });
     }
-    return { size, radius, gas, stars: placed };
+    const rings = held.map(({ ref, r }) => ({
+      x: Math.floor((((ref.x - here.x) / radius + 1) / 2) * size),
+      y: Math.floor(((1 - (ref.y - here.y) / radius) / 2) * size),
+      r: Math.round((r / radius) * (size / 2)),
+    }));
+    return { size, radius, gas, stars: placed, rings: rings.length ? rings : undefined };
   }
 
   private chart() {
@@ -899,6 +1175,9 @@ export class Game {
     // Oddities can be made out from about twice as far as planets can.
     const oddRange = 2 * strata[0].sight * optics;
     seen.filter((x) => x.dist <= oddRange && this.unresolvedAnomaly(x.ref.id)).slice(0, 2).forEach(add);
+    // Anyone whose radio carries this far: what the light shows, which is as old as the distance.
+    const loud = new Set(seen.filter((x) => this.heard(x)));
+    [...loud].slice(0, 3).forEach(add);
     // And a few bright stars to steer by.
     seen.filter((x) => x.ref.stratum === 2 && !listed.includes(x)).slice(0, 2).forEach(add);
     add(seen.find((x) => x.ref.stratum === 3 && !listed.includes(x)));
@@ -929,28 +1208,32 @@ export class Game {
 
     const drawn = seen
       .filter((x) => !listed.includes(x))
-      .map((x) => ({ seen: x }))
-      .concat(listed.map((x, i) => ({ seen: x, n: i + 1, odd: x.dist <= oddRange && this.unresolvedAnomaly(x.ref.id) })));
+      .map((x): { seen: Seen; n?: number; odd?: boolean; signal?: boolean } => ({ seen: x, signal: loud.has(x) }))
+      .concat(listed.map((x, i) => ({ seen: x, n: i + 1, odd: x.dist <= oddRange && this.unresolvedAnomaly(x.ref.id), signal: loud.has(x) })));
     this.out.push({
       k: 'map',
       s: [...grid.map((row) => row.join('').trimEnd()), `map: @ us, : dense gas, % cloud, edge at ${ly(radius)} ly`].join('\n'),
       map: this.picture(radius, drawn),
     });
-    const lines = [' #  system             ly g star  sees'];
+    const lines = [' #  system           ly g star  sees'];
     const nearRange = strata[0].sight * optics;
     listed.forEach((x, i) => {
       const sys = this.system(x.ref.id);
       const visited = this.state.mem[x.ref.id];
       let sees = '?';
       if (visited?.swept || x.dist <= nearRange) sees = `${'O'.repeat(Math.min(3, sys.giants)) || '-'} ${'~'.repeat(sys.dust) || '-'}`;
-      if (x.dist <= oddRange && this.unresolvedAnomaly(x.ref.id)) sees += ' !';
+      const marks = `${x.dist <= oddRange && this.unresolvedAnomaly(x.ref.id) ? '!' : ' '}${loud.has(x) ? '^' : ' '}`;
       // One character for the gas on the way there, in the map's own shading.
       const way = shade(planLeg(this.galaxy, here, x.ref, this.drive, 1).gasMean).replace(' ', '_');
-      lines.push(`${lpad(String(i + 1), 2)}${visited ? '*' : ' '} ${pad(this.nameOf(x.ref.id), 15)}${lpad(ly(x.dist), 5)} ${way} ${pad(STARS[sys.star].code, 5)} ${sees}`);
+      lines.push(
+        `${lpad(String(i + 1), 2)}${visited ? '*' : ' '} ${pad(this.nameOf(x.ref.id), 14)}${lpad(ly(x.dist), 5)} ${way} ${pad(STARS[sys.star].code, 5)} ${pad(sees, 7)} ${marks}`.trimEnd(),
+      );
     });
     this.pre(lines);
     this.dim('g: gas on the way (_ void, . thin, : moderate, % dense, # cloud)');
-    this.dim('sees: O giants, ~ belts and comets, ! oddity, * been there');
+    this.dim('sees: O giants, ~ belts and comets, ! oddity, ^ a signal, * been there');
+    const first = listed.findIndex((x) => loud.has(x));
+    if (first >= 0) this.sayOnce('signal_first', 'signal_first', { n: first + 1, light: spanWords(listed[first].dist) });
 
     const fancy = listed.findIndex((x) => this.system(x.ref.id).star === s.mind.fancy && !s.mem[x.ref.id]);
     if (fancy >= 0 && !s.mind.said.includes(`fancy:${listed[fancy].ref.id}`)) {
@@ -984,37 +1267,59 @@ export class Game {
       .near(here.x, here.y, optics)
       .filter((x) => x.ref.id !== here.id && x.ref.stratum >= 2 && x.dist <= radius)
       .slice(0, 9);
-    bright.forEach((x, i) => {
+    // Radio carries further than a dim star can be seen, so the wide view is where other people show up.
+    const signals = this.cultures.signals(here.x, here.y, s.tGal, Math.min(radius, HEARING));
+    const loud = new Set(signals.map((x) => x.seen.ref.id));
+    const voices = signals.filter((x) => !bright.some((b) => b.ref.id === x.seen.ref.id)).slice(0, 5).map((x) => x.seen);
+    const listed = [...bright, ...voices];
+    listed.forEach((x, i) => {
       const c = 20 + Math.round(((x.ref.x - here.x) / radius) * 20);
       const r = 6 - Math.round(((x.ref.y - here.y) / radius) * 6);
-      if (r >= 0 && r < rows && c >= 0 && c < cols) grid[r][c] = String(i + 1);
+      if (r >= 0 && r < rows && c >= 0 && c < cols) grid[r][c] = i < bright.length ? String(i + 1) : '^';
     });
     grid[6][20] = '@';
+    // The space a spreading culture holds, as far as its own broadcasts give it away.
+    const held = signals
+      .filter((x) => x.site.kind === 'home' && x.site.culture.reach)
+      .map((x) => ({ ref: x.seen.ref, r: frontier(x.site.culture, s.tGal - x.seen.dist) }))
+      .filter((x) => x.r >= 2);
     this.out.push({
       k: 'map',
       s: [
         ...grid.map((row) => row.join('').trimEnd()),
         `gas: blank void, . thin, : moderate, % dense, # cloud · @ us · edge at ${ly(radius)} ly`,
       ].join('\n'),
-      map: this.picture(radius, bright.map((x, i) => ({ seen: x, n: i + 1 }))),
+      map: this.picture(
+        radius,
+        // The voices are nearly always close in, where numbers would pile up on the ship: they get a mark, and the list has the rest.
+        [
+          ...signals.filter((x) => !bright.some((b) => b.ref.id === x.seen.ref.id)).map((x) => ({ seen: x.seen, signal: true })),
+          ...bright.map((x, i) => ({ seen: x, n: i + 1, signal: loud.has(x.ref.id) })),
+        ],
+        held,
+      ),
     });
     const lines: string[] = [];
-    if (bright.length) {
-      s.chart = bright.map((x) => x.ref.id);
-      lines.push(' #  system             ly star  way');
-      bright.forEach((x, i) => {
+    if (listed.length) {
+      s.chart = listed.map((x) => x.ref.id);
+      lines.push(' #  system           ly star  way');
+      listed.forEach((x, i) => {
         const sys = this.system(x.ref.id);
         const leg = planLeg(this.galaxy, here, x.ref, this.drive, 1);
-        const way = `${Galaxy.gasWord(leg.gasMean)}${leg.gasMax >= 10 && leg.gasMean < 10 ? ', cloud' : ''}`;
-        lines.push(`${lpad(String(i + 1), 2)}${s.mem[x.ref.id] ? '*' : ' '} ${pad(this.nameOf(x.ref.id), 15)}${lpad(ly(x.dist), 5)} ${pad(STARS[sys.star].code, 5)} ${way}`);
+        const way = `${Galaxy.gasWord(leg.gasMean)}${leg.gasMax >= 10 && leg.gasMean < 10 ? ' #' : ''}`;
+        lines.push(
+          `${lpad(String(i + 1), 2)}${s.mem[x.ref.id] ? '*' : ' '} ${pad(this.nameOf(x.ref.id), 14)}${lpad(ly(x.dist), 5)} ${pad(STARS[sys.star].code, 5)} ${pad(way, 10)} ${loud.has(x.ref.id) ? '^' : ''}`.trimEnd(),
+        );
       });
     }
     if (lines.length) this.pre(lines);
-    this.dim(
-      bright.length
-        ? 'Thin gas is fast going; a cloud is a wall. These are the bright stars in range, and "plot" works on their numbers.'
-        : `Thin gas is fast going; a cloud is a wall. No bright stars within ${ly(radius)} light-years.`,
-    );
+    const notes = ['Thin gas is fast going; a cloud is a wall (# marks one across the way).'];
+    notes.push(bright.length ? 'These are the bright stars in range.' : `No bright stars within ${ly(radius)} light-years.`);
+    if (voices.length || loud.size) notes.push('^ marks a signal: somebody was broadcasting when that light left.');
+    if (listed.length) notes.push('"plot" works on these numbers.');
+    this.dim(notes.join(' '));
+    const first = listed.findIndex((x) => loud.has(x.ref.id));
+    if (first >= 0) this.sayOnce('signal_first', 'signal_first', { n: first + 1, light: spanWords(listed[first].dist) });
   }
 
   /** A system with something odd in it that we have not yet resolved. */
@@ -1060,9 +1365,17 @@ export class Game {
     if (dist <= 2 * strata[0].sight * optics && this.unresolvedAnomaly(sys.ref.id)) {
       parts.push("And something in its light that I can't account for from here.");
     }
+    const voice = this.heard({ ref: sys.ref, dist });
+    if (voice) {
+      const who = s.met[voice.culture.id] ? `That is ${voice.culture.title}` : 'Nobody we know';
+      parts.push(`There is radio from there, structured and ${spanWords(dist)} old. ${who}. Whether they are still there is another matter.`);
+    }
     const leg = planLeg(this.galaxy, here, sys.ref, this.drive, 1);
     parts.push(`The way there lies through ${Galaxy.gasWord(leg.gasMean)} gas${leg.gasMax >= 10 && leg.gasMean < 10 ? ', with a cloud across it' : ''}.`);
-    if (mem) parts.push(`We were there ${spanWords(s.tGal - mem.last)} ago.`);
+    if (mem) {
+      const then = mem.seen.filter((x) => isLiving(x.phase) && s.met[x.id]).map((x) => s.met[x.id].title);
+      parts.push(`We were there ${spanWords(s.tGal - mem.last)} ago${then.length ? `; ${then.join(' and ')} lived there then` : ''}.`);
+    }
     this.text(parts.join(' '));
     s.plot = sys.ref.id;
     this.dim(`"plot ${arg}" for the cost of going.`);
@@ -1220,7 +1533,7 @@ export class Game {
       known.visits++;
       known.last = s.tGal;
     } else {
-      s.mem[sys.ref.id] = { first: s.tGal, last: s.tGal, visits: 1, swept: false, effort: 0, found: 0, scanned: [] };
+      s.mem[sys.ref.id] = freshMemory(s.tGal);
       s.stats.systems++;
     }
     this.note(`${fromName} to ${this.nameOf(sys.ref.id)}, ${ly(leg.dist)} ly.`);
@@ -1230,8 +1543,15 @@ export class Game {
     if (!known) this.text(this.starText(sys));
     if (breach >= 0.5) this.out.push({ k: 'alert', s: `The shield gave out on the way. Hull down ${Math.round(breach)} points.` });
 
-    if (known) this.say('revisit', { sys: this.nameOf(sys.ref.id), gap: spanWords(gap) });
-    else this.say('arrive', { light: spanWords(leg.dist), outside: spanWords(leg.galaxy) });
+    // Other people come first. If the Mind has something to say about them, it skips its usual remark.
+    const spoken = this.out.filter((o) => o.k === 'mind').length;
+    this.takeNote('arrive');
+    if (this.out.filter((o) => o.k === 'mind').length === spoken) {
+      const { sites, claims } = this.people();
+      if (claims.length && !sites.some((x) => x.alive) && s.stats.systems % 2 === 0) this.say('civ_claim');
+      else if (known) this.say('revisit', { sys: this.nameOf(sys.ref.id), gap: spanWords(gap) });
+      else this.say('arrive', { light: spanWords(leg.dist), outside: spanWords(leg.galaxy) });
+    }
 
     const d = s.mind.dissent;
     if (d) {
@@ -1281,7 +1601,10 @@ export class Game {
       switch (verb) {
         case 'scoop': return `I'd put a crew on ${where} for fuel. We're at ${Math.round(this.fuelPct)}%.`;
         case 'ice': return `The shield wants ice, and ${where} has it. We're at ${Math.round(s.ship.shield)}%.`;
-        case 'scan': return `${capital(where)} still has that oddity. A deep scan would settle it.`;
+        case 'scan':
+          return this.scanTargets().find((t) => t.body === Number(n))?.site
+            ? `Somebody built at ${where}. A deep scan would tell us who.`
+            : `${capital(where)} still has that oddity. A deep scan would settle it.`;
         case 'survey': return `The survey is ${Math.round((100 * this.mem.found) / sys.discoveries.length)}% done. There's more here; it comes slower as we go.`;
         case 'repair': return `The Wrights could mend while we sit. Hull is at ${Math.round(s.ship.hull)}% and we have the stock.`;
         case 'mine': return `There's ore at ${where} and room in the hold. Refits and repairs both eat it.`;
@@ -1332,8 +1655,8 @@ export class Game {
       ` cruise here: gamma ${cruiseGamma(this.drive, 1, n).toFixed(1)} in ${Galaxy.gasWord(n)} gas`,
       ` ${s.stats.systems} systems · ${s.stats.jumps} jumps · ${Math.round(s.stats.ly)} ly`,
     ];
-    if (s.ship.relics.length) lines.push(` aboard: ${s.ship.relics.join(', ')}`);
     this.pre(lines);
+    if (s.ship.relics.length) this.text(`In the hold, under lock: ${s.ship.relics.map(relicLabel).join('; ')}.`);
   }
 
   private refitState(track: RefitTrack): 'max' | 'ready' | 'archive' | 'materials' | 'busy' {
@@ -1398,7 +1721,7 @@ export class Game {
   private finds() {
     const s = this.state;
     const lines: string[] = [];
-    for (const category of ['geology', 'dynamics', 'stellar', 'life', 'relic'] as const) {
+    for (const category of ['geology', 'dynamics', 'stellar', 'life', 'artefact'] as const) {
       const all = FEATURES.filter((f) => f.category === category);
       const got = all.filter((f) => s.seen[f.id]);
       lines.push(` ${pad(category, 9)} ${got.length} of ${all.length}`);
@@ -1406,7 +1729,13 @@ export class Game {
     }
     const stars = (Object.keys(STARS) as (keyof typeof STARS)[]).filter((k) => s.seen[`star:${k}`]);
     lines.push(` ${pad('stars', 9)} ${stars.length} of ${Object.keys(STARS).length} kinds`);
+    const peoples = Object.values(s.met);
+    lines.push(` ${pad('peoples', 9)} ${peoples.length} known · ${s.seen.ruin ?? 0} ruins read`);
+    for (const m of peoples.slice(-12)) {
+      lines.push(`   ${pad(m.title.replace(/^the /, ''), 21)} ${pad(m.how, 5)} ${lpad(clock(m.t), 9)}`);
+    }
     this.pre(lines);
+    if (peoples.length) this.dim('Peoples: how we know them, and the year outside when we first did.');
   }
 
   private rename(arg: string) {
@@ -1434,7 +1763,7 @@ export class Game {
       '  ice N       rebuild the shield',
       '  mine N      materials for the hold',
       '  survey      chart the system, slowly',
-      '  scan N      deep scan of an oddity (!)',
+      '  scan N      deep scan: oddity or ruin',
       '  repair      mend the hull with materials',
       '  recall N    free a crew',
       '  stay [30]   let days pass (d w m y)',

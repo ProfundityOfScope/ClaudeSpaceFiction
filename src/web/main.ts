@@ -83,6 +83,18 @@ function drawMap(map: MapData): HTMLCanvasElement | null {
   const haze = [0, 0.12, 0.27, 0.45, 0.68].map((t) => blend(bg, token('--dim'), t));
   for (let i = 0; i < map.gas.length; i++) cells(haze[Number(map.gas[i])], [[i % map.size, Math.floor(i / map.size)]]);
 
+  // Space somebody holds: a thin ring, under the stars.
+  const voice = token('--ok');
+  for (const ring of map.rings ?? []) {
+    const points: number[][] = [];
+    const steps = Math.max(12, Math.round(8 * ring.r));
+    for (let i = 0; i < steps; i++) {
+      const a = (i / steps) * 2 * Math.PI;
+      points.push([Math.round(ring.x + ring.r * Math.cos(a)), Math.round(ring.y + ring.r * Math.sin(a))]);
+    }
+    cells(blend(bg, voice, 0.5), points);
+  }
+
   // Stars: faint unnumbered ones first, so the numbered ones sit on top of them.
   const m = map.size / 2;
   type Box = [number, number, number, number];
@@ -90,13 +102,18 @@ function drawMap(map: MapData): HTMLCanvasElement | null {
   const numbered = map.stars.filter((star) => star.n).sort((a, b) => (a.n ?? 0) - (b.n ?? 0));
   for (const star of [...map.stars.filter((star) => !star.n), ...numbered]) {
     const { x, y } = star;
-    const color = blend(bg, tones[star.tone], star.n ? 1 : 0.55);
+    const color = star.signal && !star.n ? blend(bg, voice, 1) : blend(bg, tones[star.tone], star.n ? 1 : 0.55);
     cells(color, [[x, y]]);
     if (star.size >= 2) cells(color, [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]]);
     if (star.size >= 3) cells(color, [[x + 2, y], [x - 2, y], [x, y + 2], [x, y - 2]]);
     if (star.visited) cells(blend(bg, ink, 0.55), [[x - 1, y + star.size + 1], [x, y + star.size + 1], [x + 1, y + star.size + 1]]);
     if (star.odd) cells(blend(bg, tones.warm, 1), [[x - 3, y - 2], [x - 3, y - 1], [x - 3, y], [x - 3, y + 2]]);
-    if (star.n) taken.push([x - star.size, y - star.size, x + star.size, y + star.size]);
+    // A signal: a small caret over the star, in the colour nothing else on the map uses.
+    if (star.signal) {
+      const top = y - star.size - 2;
+      cells(blend(bg, voice, 1), [[x, top], [x - 1, top + 1], [x + 1, top + 1]]);
+    }
+    if (star.n) taken.push([x - star.size, y - star.size - (star.signal ? 3 : 0), x + star.size, y + star.size]);
   }
 
   // Numbers: beside each star, on whichever side is free.
@@ -148,7 +165,8 @@ function print(items: Out[]) {
       el.className = 'o map fresh';
       const caption = document.createElement('figcaption');
       const edge = item.map.radius < 10 ? item.map.radius.toFixed(1) : Math.round(item.map.radius);
-      caption.textContent = `edge at ${edge} ly · haze is gas, stronger is thicker · the hollow square is us`;
+      const voices = item.map.rings?.length || item.map.stars.some((star) => star.signal);
+      caption.textContent = `edge at ${edge} ly · haze is gas, stronger is thicker · the hollow square is us${voices ? ' · green is somebody' : ''}`;
       el.append(picture, caption);
     } else {
       // No picture: fall back to the same map in characters.
@@ -209,19 +227,22 @@ function begin(seed: number, fresh = false) {
   log.replaceChildren();
   const saved = fresh ? null : read(slot(seed));
   let resumed = false;
+  let outdated = false;
   if (saved) {
     try {
       game = Game.load(saved);
       resumed = true;
-    } catch {
-      /* an unreadable save: start over below */
+    } catch (error) {
+      // An unreadable save: start over below, and say so if it was simply from an older version.
+      outdated = String(error).includes('older version');
     }
   }
   if (resumed) {
     print([{ k: 'dim', s: 'Voyage resumed.' }, ...game.exec('look').slice(1)]);
   } else {
     game = Game.fresh(seed);
-    print(game.intro());
+    const notice: Out[] = outdated ? [{ k: 'dim', s: 'The galaxy has changed since your last voyage was saved, so that one could not be resumed. This is a new one.' }] : [];
+    print([...notice, ...game.intro()]);
     write(slot(seed), game.save());
   }
   write('lightspeed.last', String(seed));
@@ -271,8 +292,10 @@ $('load').addEventListener('click', () => {
     log.replaceChildren();
     print([{ k: 'dim', s: 'Voyage loaded.' }, ...game.exec('look').slice(1)]);
     refresh();
-  } catch {
-    note.textContent = 'That text is not a save from this game. Check that all of it was pasted.';
+  } catch (error) {
+    note.textContent = String(error).includes('older version')
+      ? 'That save is from an older version of the game, and the galaxy has changed since.'
+      : 'That text is not a save from this game. Check that all of it was pasted.';
   }
 });
 

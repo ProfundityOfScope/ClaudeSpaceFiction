@@ -91,6 +91,8 @@ test('surveying finds everything, and work fills what it should', () => {
 test('fixed-width blocks fit a phone', () => {
   const g = Game.fresh();
   const commands = ['sweep', 'ops', 'survey', 'stay 60', 'look', 'chart', 'plot 1', 'plot 9', 'gas', 'plot 1', 'ship', 'refits', 'log', 'finds', 'help', 'burn', 'sweep', 'chart'];
+  // Then on through a few more systems, so inhabited ones and ruins are covered too.
+  for (let hop = 0; hop < 6; hop++) commands.push('gas', `plot ${10 + (hop % 3)}`, 'burn', 'sweep', 'look', 'ops', 'chart', 'finds', 'ship');
   for (const c of commands) {
     for (const out of g.exec(c)) {
       if (out.k !== 'pre') continue;
@@ -125,15 +127,10 @@ test('a new voyage is walked through its first visit, once', () => {
   assert.doesNotMatch(said(g.exec('sweep')), /Try "scoop/);
 });
 
-test('a save from before the walkthrough loads and is not walked through', () => {
-  const g = Game.fresh();
-  const old = JSON.parse(g.save());
-  delete old.guide;
-  delete old.visit.plots;
-  const loaded = Game.load(JSON.stringify(old));
-  assert.doesNotMatch(said(loaded.exec('sweep')), /Try "scoop/);
-  assert.ok(loaded.exec('chart').length > 0);
-  assert.ok(loaded.exec('plot 1').length > 0);
+test('a save from an older version is refused, and says why', () => {
+  const old = JSON.parse(Game.fresh().save());
+  old.v = 1;
+  assert.throws(() => Game.load(JSON.stringify(old)), /older version/);
 });
 
 test('other names and near misses for commands', () => {

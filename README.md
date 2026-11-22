@@ -28,8 +28,10 @@ node tools/play.ts sweep ops  # run some commands and exit
 - **Small maps.** In the browser, `chart` and `gas` draw a blocky little picture of the sky. A terminal shows the same map in characters.
 - **Refits.** Knowledge in the Archive unlocks them; materials and crew time pay for them.
 - **The Mind.** A written voice with its own tastes, a dissent it logs and later checks, and a habit of noticing how you leave places.
+- **Other people.** About one system in a hundred is somebody's home, more in the old cluster where the voyage starts. None of them are human. Each culture is born, rises, declines and ends; a few spread to hold the stars around them for a while. Their radio shows as `^` on the chart and the wide map, as old as the light that carries it. Come back after a long haul and they may have changed, or be gone.
+- **Ruins and relics.** A culture that has ended leaves ruins for a few thousand years, and then nothing. A sweep picks them out; a deep scan says whose they were, and now and then brings something back for the hold.
 
-Not here yet: civilisations and ruins tied to them, other ships and their invitations, the permanent waypoint systems, marks the navigator leaves behind, and transients.
+Not here yet: dealing with the people you meet (terms, tolls, trade, and what happens when you ignore them), other ships and their invitations, the permanent waypoint systems, marks the navigator leaves behind, and transients.
 
 ## How it is built
 
@@ -41,25 +43,28 @@ TypeScript, no framework, no runtime dependencies. The game core never touches t
 | `src/core/rng.ts` | Integer hashing; one substream per purpose |
 | `src/core/galaxy.ts` | Where systems are and how thick the gas is, generated per cell on demand |
 | `src/core/system.ts` | Stars, bodies and what a survey finds, as a pure function of seed and id |
-| `src/core/features.ts` | The catalogue of finds, with their text |
+| `src/core/features.ts` | The catalogue of natural oddities, with their text |
+| `src/core/civs.ts` | Who lives where and when: cultures, the space they hold, their ruins |
+| `src/core/cultures.ts` | The tables a culture is invented from: names, bodies, habits, what they leave |
 | `src/core/travel.ts` | Trip planning: both clocks, fuel and shield |
 | `src/core/mind.ts` | The Mind's lines and how one is chosen |
 | `src/core/state.ts` | What gets saved |
 | `src/core/game.ts` | The commands |
 | `src/web/` | The page |
-| `tools/` | Build script, terminal player, and the bot |
+| `tools/` | Build script, terminal player, the bot, and the census of who is out there |
 | `video/` | A small renderer for narrated code-walkthrough videos |
 
-Nothing about the galaxy is stored. A save holds the ship, the clocks and what the navigator has seen; everything else is regenerated from the seed. The demo galaxy is a 6,000 light-year disc of three million systems; `radius` and `totalSystems` in `config.ts` are the only numbers to change to make it larger.
+Nothing about the galaxy is stored. A save holds the ship, the clocks and what the navigator has seen; everything else is regenerated from the seed. That includes history: who is home at a system in a given year is a function of the seed, the system and the year, so the galaxy can be asked about any date without ever being stepped through time. The demo galaxy is a 6,000 light-year disc of three million systems; `radius` and `totalSystems` in `config.ts` are the only numbers to change to make it larger.
 
 ## Working on it
 
 ```
 npm run check    # typecheck
-npm test         # determinism, calibration, physics, saves, layout width
+npm test         # determinism, calibration, physics, cultures, saves, layout width
 npm run build    # writes docs/index.html
-npm run bot      # a bot flies 150 jumps and reports pacing and repeated lines
+npm run bot      # a bot flies 150 jumps and reports pacing, repeated lines and who it met
 node tools/bot.ts --jumps 500 --seed 7 --transcript > flight.txt
+npm run census   # how many cultures, outposts and ruins there are, and how far apart
 ```
 
 `docs/index.html` is generated; edit `src/` and rebuild.

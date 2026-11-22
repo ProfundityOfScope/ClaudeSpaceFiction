@@ -10,7 +10,7 @@ A text prototype of the game Lightspeed: a forever cruise on a relativistic worl
 
 - `main` = slice 1, the video renderer, onboarding and tuning, and the pixel maps. `v0.1.0` tags slice 1 (commit 8461d87). Nothing since has been tagged; suggest `v0.1.1` or fold it into `v0.2.0`.
 - Public page: GitHub Pages serves `main` / `docs/`. Dev preview: a private Artifact named "Lightspeed", republished from `dist/artifact.html` (find it in the artifact list; pass its URL to update it in place).
-- Current branch of work: `claude/civilisations` (slice 2). The owner approved the design with changes (below). Step 1 is being built; stop after it for them to judge density.
+- Current branch of work: `claude/civilisations` (slice 2). Step 1 of three is built and in a pull request: cultures exist and can be seen, ruins can be read, relics can be carried. **Stop here** until the owner has judged how busy the galaxy feels; then step 2 (contact and consequences), then step 3 (trade).
 - Not yet heard: how the onboarding, the economy burn and the gas views played. Ask.
 
 ## What the owner wants (their steers, in order of weight)
@@ -110,20 +110,52 @@ Things to ask after the next play-test: is economy now worth choosing; is the hu
 - **The emergency exit.** For now the Mind bails at 10% hull. Leave the hook for a smarter rule: the nearest empty system is known, so the cutoff can be placed where the resulting drift is painful but not catastrophic.
 - **Existing voyages may be invalidated** freely during testing. Saves are now version 2; older ones start afresh.
 
-### Slice 2 design (approved; step 1 in progress)
+### Slice 2 design (approved; step 1 built, steps 2 and 3 to come)
 
 - **Generator, `civs.ts`, pure functions of (seed, place, year).**
-  - *Worlds*: single-system cultures, looked up per system. Each era of a few thousand years, a system with a suitable body may see a culture arise: a start year, a lifespan (centuries to a few millennia), temperament genes, an identity. Rate set so about 1% of field systems are inhabited at any time; old clusters get a multiplier, which is what makes the starting cluster busy.
-  - *Reaches*: the few cultures that spread. Seeded per coarse cell and era, each with a home system, a growth speed, a maximum radius (tens of light-years, rarely a couple of hundred) and a lifespan. A system inside a living Reach is held.
-  - *Phases* from age over lifespan: founding, rising, height, decline; then recent ruins, old ruins, nothing.
-  - New keys in `K`; star generation is not touched.
-- **Identity** from extendable tables: a short species sketch, a temperament, a name stem and a polity word. Nothing human.
-- **Seeing them.** In the heading and the sweep; a signal mark on the chart for loud cultures; a Reach's extent tinted on the wide map; `scope` says what the light shows.
-- **Contact.** They state terms on arrival (welcome, toll, keep out) by temperament, phase and how past visits went. Comply or ignore. Ignoring a strong culture escalates: warning, then damage, then the Mind takes the conn and burns for the nearest empty system. With dry tanks that becomes the long fall. Never a game over.
-- **Trade.** Each culture wants two things and offers two: materials, records by Archive category (each category once per culture), carried items; fuel, ice, repairs, help with a refit, charts that mark leads, their records, a keepsake. No prices.
-- **Ruins and relics.** A culture that ended within its ruin window leaves a site on a body: noticed on the sweep, worked with a deep scan for Archive and, rarely, a relic. After the window nothing remains. The made things left among the oddities (probe, beacon, vault, hulk, engineered rings, mined-out world) are rarity 3 and yield a relic only occasionally.
-- **Memory.** Per system: who was here and in what phase at the last visit, so a return prints the difference. Per culture met: standing and what has been traded.
-- **Order of building**, each step playable: (a) the generator and seeing them, with a bot census to tune density; (b) contact and consequences; (c) trade, items and leads.
+  - *Worlds*: single-system cultures, rolled per system and per era.
+  - *Reaches*: the few that spread, rolled per coarse cell and per era, each with a home system, a frontier speed, a furthest radius and a lifespan. A system inside a living Reach is claimed; about half of those carry an outpost.
+  - *Phases* from age over lifespan: founding, rising, height, decline; then ruins, old ruins, nothing.
+- **Identity** from extendable tables in `cultures.ts`. Nothing human.
+- **Contact (step 2).** They state terms on arrival (welcome, toll, keep out) by temperament, phase and how past visits went. Comply or ignore. Ignoring a strong culture escalates: warning, then damage, then the Mind takes the conn and burns for the nearest empty system. With dry tanks that becomes the long fall. Never a game over.
+- **Trade (step 3).** Each culture wants two things and offers two: materials, records by Archive category (each category once per culture), carried items; fuel, ice, repairs, help with a refit, charts that mark leads, their records, a keepsake. No prices. Relics are worth something to cultures of certain temperaments (`RelicKind` is there for this).
+
+### Slice 2, step 1 as built
+
+How it works, for whoever picks this up:
+
+- **Eras with offsets.** Time is cut into eras of `CIV.ERA` years. A system raises at most one culture per era and a culture's whole life fits inside its era, so two never overlap at one world. Every system and every coarse cell counts its eras from its own hashed offset. Without the offsets the whole galaxy died at each era boundary; the first census caught that. Ruins last less than an era, so any year needs only the current era and the one before.
+- **A Reach's home** is the nearest world that could raise a people and that no single-world culture is using during the Reach's life. `frontier(c, year)` grows from home, holds, and falls back to a quarter during decline. An outpost lives from when the frontier reaches it until the frontier falls back past it, then is a ruin for a while.
+- **The people belong to the world.** The species sketch is seeded by the home system, not the era. A later culture there is the same kind of creature under a newer name, and the game says so if both are known.
+- **`Cultures` (in `civs.ts`)**: `presence(sys, year)` gives sites (home or outpost, living or ruined) and claims; `heard(sys, year, dist)` is what the light shows, so it asks about `year - dist`; `signals()` lists everything audible from a point; `byId` finds a culture again. All tunables are `CIV` in `config.ts`.
+- **In the game.** `takeNote('arrive' | 'sweep' | 'stay')` is the one place that reports on people: what became of those we knew, anyone new, and ruins once the system is swept. `meet`, `noticeRuin` and `finishRuin` do the rest. `scanTargets()` is the single list of things a deep scan can be pointed at (oddity hints and ruins). Crews take nothing from a living home world (`homes()`).
+- **Saved**: `state.met` (cultures known, by id), `mem.seen` (who was here and in what phase, for telling the difference), `mem.sites` (ruins read), `ship.relics` as objects (what, whose, kind, year). Save version 2; older saves are refused and the page starts a new voyage with a line saying why.
+- **Seeing them**: a line under the heading; `^` on a body in the system table; a `^` column on the chart for signals (the name column shrank to 14 to fit) and up to three heard systems added to the list; the wide map lists the five nearest voices after the bright stars and draws a ring for the space a spreading culture holds. The page draws all of that in `--ok` green.
+- **Oddities**: the worked stone and the sea walls left the catalogue and are now ruins. The remaining made things are category `artefact`, all rarity 3, and carry `relic: { what, kind, chance }`.
+- **The start**: `findStart` now wants an empty system with somebody alive and somebody's ruins within the first chart. The default seed starts at Ember 99.
+- **Tools**: `npm run census` counts cultures, outposts and ruins in the starting cluster and the field. The bot counts who it meets; `--deaf` makes it ignore signals.
+
+Numbers on the default seed (rerun the census after touching `CIV`):
+
+- Field systems: about 1.05% are somebody's home, 0.3% carry an outpost, 0.7% are claimed, 1.5% have ruins.
+- The starting cluster (117 systems): 5 to 12% inhabited and 7 to 11% with ruins, depending on the year. Four living cultures within 8 ly of the start and four ruins within 10.
+- From a field system the nearest living culture is about 21 ly off (median) and the nearest ruin about 16.
+- Spreading cultures: about 0.44 alive per coarse cell; they hold a median 12.5 ly, the largest near the start 55 ly.
+- Turnover of a culture alive now: 95% still there after 50 years, 82% after 200, 65% after 500, 38% after 1,000, 1% after 3,000.
+- The bot lands on somebody's home on about 45% of jumps when it follows signals, and 1 to 2% when it ignores them. Relics: 0 to 5 in 200 jumps.
+
+Known rough edges, deliberately left:
+
+- The inner disc is much busier with claimed space (about a tenth of systems inside 900 ly of the centre), because spreading cultures scale with star count. `REACH_PER` is the dial; scaling by something gentler than density is the other option.
+- Survey finds are fixed for all time and know nothing about people, so a find about life can sit oddly on a world with cities.
+- The end is a cliff: decline one year, ruins the next.
+- On the map, signal green is close to the ship's teal.
+- The tables are thin (two wordings per kind of place, a handful of bodies and habits). The owner said these get fleshed out later.
+- A dim line on the first meeting says dealing with them comes in a later build. Remove it in step 2.
+
+To ask the owner: is the starting cluster too busy or about right; does following signals make people too easy to find; are ruins common enough; is a 70-day scan right for a ruin; do the species sketches read well; are the green marks legible.
+
+Notes for step 2: terms attach where `meet` and `homes()` are. The emergency exit is the Mind taking the conn at 10% hull; keep it as one function that takes a cutoff, because the owner wants a smarter rule later: the nearest empty system is known, so the cutoff can be put where the drift that follows is painful but not catastrophic.
 
 ### Later slices, ideas held
 
@@ -136,8 +168,9 @@ Things to ask after the next play-test: is economy now worth choosing; is the hu
 
 - Integer hashing only. One substream per purpose. Append to `K`, never renumber.
 - Nothing derived is stored. The save holds what the player did; the galaxy is rebuilt from the seed.
-- A save is `State` with `v: 1`. Adding a field needs a default on load. Changing what a field means needs a version bump.
-- Adding an entry to `FEATURES` changes what the dice pick, so surveyed systems can change. Acceptable now; say so when it happens.
+- A save is `State` with `v: SAVE_VERSION` (now 2). Adding a field needs a default on load. Changing what a field means needs a version bump, which throws old voyages away; the owner has said that is fine during testing.
+- History is never stepped. Who is home is a function of (seed, system, year); keep it that way, so a save never has to hold a simulation.
+- Adding an entry to `FEATURES` changes what the dice pick, so surveyed systems can change. Acceptable now; say so when it happens. The same goes for the tables in `cultures.ts`: a new entry renames or redescribes cultures already met.
 - Fixed-width output stays within 42 columns (there is a test).
 
 ## How to work here
