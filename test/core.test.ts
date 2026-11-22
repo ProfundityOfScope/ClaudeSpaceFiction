@@ -67,7 +67,7 @@ test('travel: gas sets the speed, and the two clocks behave', () => {
 
 test('a voyage survives saving and loading', () => {
   const a = Game.fresh();
-  for (const c of ['sweep', 'survey', 'scoop 1', 'stay 40', 'chart', 'plot 1', 'burn', 'sweep']) a.exec(c);
+  for (const c of ['survey', 'scoop 1', 'stay 40', 'chart', 'plot 1', 'burn', 'system']) a.exec(c);
   const b = Game.load(a.save());
   assert.deepEqual(b.status(), a.status());
   assert.deepEqual(b.exec('look'), a.exec('look'));
@@ -77,7 +77,7 @@ test('a voyage survives saving and loading', () => {
 
 test('a remembered system is stored leanly, and nothing is lost by it', () => {
   const g = Game.fresh();
-  for (const c of ['sweep', 'survey', 'stay 30', 'chart close', 'plot 1', 'burn', 'chart close', 'plot 2', 'burn', 'sweep']) {
+  for (const c of ['survey', 'stay 30', 'chart close', 'plot 1', 'burn', 'chart close', 'plot 2', 'burn']) {
     Object.assign(g.state.ship, { fuel: 1e6, shield: 100, hull: 100 });
     g.exec(c);
   }
@@ -107,7 +107,6 @@ test('a remembered system is stored leanly, and nothing is lost by it', () => {
 
 test('surveying finds everything, and work fills what it should', () => {
   const g = Game.fresh();
-  g.exec('sweep');
   const total = g.here.discoveries.length;
   assert.ok(total > 0);
   g.exec('survey');
@@ -121,9 +120,9 @@ test('surveying finds everything, and work fills what it should', () => {
 
 test('fixed-width blocks fit a phone', () => {
   const g = Game.fresh();
-  const commands = ['sweep', 'ops', 'survey', 'stay 60', 'look', 'chart close', 'plot 1', 'plot 9', 'chart far', 'plot 1', 'ship', 'refits', 'log', 'finds', 'help', 'chart', 'chart sideways'];
+  const commands = ['system', 'ops', 'survey', 'stay 60', 'look', 'chart close', 'plot 1', 'plot 9', 'chart far', 'plot 1', 'ship', 'refits', 'log', 'finds', 'help', 'chart', 'chart sideways'];
   // Then on through a few systems the chart picks out, so inhabited ones and ruins are covered too.
-  for (let hop = 0; hop < 6; hop++) commands.push('chart', `plot ${1 + (hop % 3)}`, 'burn', 'sweep', 'survey', 'stay 60', 'mine 1 40', 'mine 2', 'look', 'ops', 'chart close', 'chart far', 'gas', 'finds', 'ship');
+  for (let hop = 0; hop < 6; hop++) commands.push('chart', `plot ${1 + (hop % 3)}`, 'burn', 'survey', 'stay 60', 'mine 1 40', 'mine 2', 'system', 'ops', 'chart close', 'chart far', 'gas', 'finds', 'ship');
   for (const c of commands) {
     for (const out of g.exec(c)) {
       if (out.k !== 'pre' && out.k !== 'map') continue;
@@ -146,8 +145,10 @@ const said = (out: { s: string }[]) => out.map((o) => o.s).join('\n');
 
 test('a new voyage is walked through its first visit, once', () => {
   const g = Game.fresh();
-  assert.match(said(g.intro()), /First, a sweep/);
-  assert.match(said(g.exec('sweep')), /Try "scoop \d+" and "survey"/);
+  // The opening shows the system as the approach found it, and says what to do with it.
+  const opening = g.intro();
+  assert.ok(opening.some((o) => o.k === 'pre' && o.s.includes('the star')), 'the system table is on the first screen');
+  assert.match(said(opening), /resolve on the way in.*\n.*Try "scoop \d+" and "survey"/);
   assert.match(said(g.exec('survey')), /let the days run/);
   assert.match(said(g.exec('stay 5')), /That is the rhythm/);
   assert.match(said(g.exec('chart')), /Pick one/);
@@ -155,7 +156,7 @@ test('a new voyage is walked through its first visit, once', () => {
   assert.match(said(g.exec('burn')), /I will stop explaining/);
   assert.equal(g.state.guide, undefined);
   // The next system gets no walkthrough.
-  assert.doesNotMatch(said(g.exec('sweep')), /Try "scoop/);
+  assert.doesNotMatch(said(g.exec('system')), /Try "scoop/);
 });
 
 test('a save from an older version is refused, and says why', () => {
@@ -166,9 +167,10 @@ test('a save from an older version is refused, and says why', () => {
 
 test('other names and near misses for commands', () => {
   const g = Game.fresh();
-  g.exec('sweep');
-  assert.deepEqual(g.exec('map').slice(1), g.exec('look').slice(1));
-  assert.match(said(g.exec('sweap')), /Did you mean "sweep"\?/);
+  g.intro();
+  // The old names for the system view still work: there is no separate sweep to ask for any more.
+  for (const name of ['map', 'look', 'sweep', 'sys', 'l']) assert.deepEqual(g.exec(name).slice(1), g.exec('system').slice(1));
+  assert.match(said(g.exec('sistem')), /Did you mean "system"\?/);
   assert.doesNotMatch(said(g.exec('xyzzy')), /Did you mean/);
 });
 
@@ -195,7 +197,6 @@ test('the Mind words a repeated objection differently, and remembers how they tu
 
 test('every chart carries a map for the page to draw, and the same map in characters', () => {
   const g = Game.fresh();
-  g.exec('sweep');
   for (const command of ['chart close', 'chart', 'chart far', 'gas']) {
     const item = g.exec(command).find((o) => o.k === 'map');
     assert.ok(item?.map, `${command} emits a map`);
@@ -215,7 +216,6 @@ test('every chart carries a map for the page to draw, and the same map in charac
 
 test('the three charts nest, and each lists what suits its scale', () => {
   const g = Game.fresh();
-  g.exec('sweep');
   const view = (command: string) => {
     const out = g.exec(command);
     const rows = (out.find((o) => o.k === 'pre')?.s ?? '').split('\n').slice(1);
@@ -273,7 +273,6 @@ test('a convex hull keeps the outermost points, and draws as an edge with an ins
 
 test('plot says what is there and what it costs, and takes a name as well as a number', () => {
   const g = Game.fresh();
-  g.exec('sweep');
   g.exec('chart');
   const [first, second] = g.state.chart;
   const byNumber = g.exec('plot 1');
@@ -297,7 +296,6 @@ test('plot says what is there and what it costs, and takes a name as well as a n
 
 test('each chart says which of its stars the tanks can reach', () => {
   const g = Game.fresh();
-  g.exec('sweep');
   assert.match(said(g.exec('chart close')), /On these tanks a hard burn reaches all of them\./);
   g.state.ship.fuel = 0.12;
   const thin = said(g.exec('chart'));
@@ -307,9 +305,8 @@ test('each chart says which of its stars the tanks can reach', () => {
   assert.match(said(g.exec('chart far')), /none of them is in reach, even on economy/);
 });
 
-test('look shows the crews and where they are; ship includes the refits', () => {
+test('system shows the crews and where they are; ship includes the refits', () => {
   const g = Game.fresh();
-  g.exec('sweep');
   const giant = g.here.bodies.find((b) => b.fuel > 0)!;
   g.exec(`scoop ${giant.n}`);
   g.exec('survey');

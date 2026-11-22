@@ -39,7 +39,7 @@ export const LINES: Record<string, string[]> = {
     'New sky. I have nothing on file for this one.',
     "We're here. Nobody is expecting us, which simplifies things.",
     'Braking burn complete. The plume will be visible for light-years, to anyone looking.',
-    "Station kept. I'll have a first look at whatever you point me at.",
+    'Station kept. What we saw on the way in is on your table.',
     "Arrived. The Surveyors were at the windows before I'd finished the burn.",
     'In orbit. Everything in this system is new to the Archive, including the dull parts.',
     "We've stopped. I recommend looking before deciding anything.",
@@ -378,11 +378,10 @@ export function speak(mind: MindState, seed: number, pool: string, vars: Record<
  * order, as the navigator reaches that step; `hint` names the commands.
  */
 export const GUIDE = {
-  start: 'First, a sweep. It costs an hour and shows what orbits this star.',
-  swept: 'That is everything big enough to see from here. We have two crews, both idle. {where} has fuel for the taking, and a survey would tell us what the rest is worth.',
-  sweptHint: 'Try "scoop {n}" and "survey". "ops" lists all the work here, and "look" shows this table and the crews again.',
-  sweptBare: 'That is everything big enough to see from here. We have two crews, both idle. A survey would tell us what this place is worth.',
-  sweptBareHint: 'Try "survey". "ops" lists all the work here, and "look" shows this table and the crews again.',
+  first: 'That is everything we could resolve on the way in. We have two crews, both idle. {where} has fuel for the taking, and a survey would tell us what the rest is worth.',
+  firstHint: 'Try "scoop {n}" and "survey". "ops" lists all the work here, and "system" shows this table and the crews again.',
+  firstBare: 'That is everything we could resolve on the way in. We have two crews, both idle. A survey would tell us what this place is worth.',
+  firstBareHint: 'Try "survey". "ops" lists all the work here, and "system" shows this table and the crews again.',
   working: 'Good. Nothing happens until you let the days run.',
   workingHint: '"stay" runs time until a crew finishes or something turns up. "stay 30" runs thirty days.',
   stayed: 'That is the rhythm of it: put the crews to work, let the days run, see what turns up. Stay as long as it pays.',

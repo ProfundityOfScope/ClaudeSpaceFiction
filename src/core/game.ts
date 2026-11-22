@@ -152,14 +152,14 @@ const ORDINALS = ['', 'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 's
 const ordinal = (n: number) => ORDINALS[n] ?? `${n}th`;
 const RICH = ['none', 'thin', 'fair', 'rich'];
 const ALIASES: Record<string, string> = {
-  l: 'look', sw: 'sweep', o: 'ops', s: 'stay', wait: 'stay', c: 'chart', sc: 'plot', scope: 'plot', p: 'plot',
+  l: 'system', look: 'system', sw: 'system', sweep: 'system', o: 'ops', s: 'stay', wait: 'stay', c: 'chart', sc: 'plot', scope: 'plot', p: 'plot',
   b: 'burn', go: 'burn', a: 'ask', st: 'ship', status: 'ship', j: 'log', journal: 'log', h: 'help', '?': 'help',
   cut: 'ice', stop: 'recall', idle: 'recall', codex: 'finds', upgrades: 'ship', refits: 'ship', fix: 'repair',
-  map: 'look', system: 'look', sys: 'look', jump: 'burn', nav: 'chart', crews: 'ops', crew: 'ops', work: 'ops',
+  map: 'system', sys: 'system', jump: 'burn', nav: 'chart', crews: 'ops', crew: 'ops', work: 'ops',
   far: 'gas', wide: 'gas', lanes: 'gas',
 };
 const VERBS = [
-  'look', 'sweep', 'ops', 'scoop', 'ice', 'mine', 'survey', 'scan', 'repair', 'recall', 'stay', 'chart', 'gas',
+  'system', 'ops', 'scoop', 'ice', 'mine', 'survey', 'scan', 'repair', 'recall', 'stay', 'chart', 'gas',
   'plot', 'burn', 'drift', 'ask', 'ship', 'refit', 'dump', 'log', 'finds', 'name', 'help',
 ];
 
@@ -198,7 +198,10 @@ export class Game {
 
   static fresh(seed: number = DEMO.seed, cfg: GalaxyConfig = DEMO): Game {
     const galaxy = new Galaxy({ ...cfg, seed });
-    return new Game(freshState(galaxy, seed), cfg);
+    const game = new Game(freshState(galaxy, seed), cfg);
+    // The voyage opens in orbit, with the system already looked over like any other.
+    game.approach();
+    return game;
   }
 
   static load(text: string, cfg: GalaxyConfig = DEMO): Game {
@@ -330,8 +333,12 @@ export class Game {
       `We are in orbit at ${sys.name}, ${where}. Tanks at ${Math.round(this.fuelPct)}%. The drive is the one we were launched with, which is to say modest.`,
     );
     this.mindSays('The stars are close together here. I suggest we learn the neighbourhood before we try anything long.');
-    if (this.state.guide !== undefined) this.mindSays(GUIDE.start);
-    this.dim('Type a command or tap one below: "sweep" to begin. "help" lists them all.');
+    // What the approach showed is already on the table: there is no first look to ask for.
+    this.heading();
+    this.text(this.starText(sys));
+    this.pre(this.systemTable());
+    if (this.state.guide === 0) this.guideFirst();
+    this.dim('Type a command or tap one below. "help" lists them all.');
     return this.out;
   }
 
@@ -344,8 +351,7 @@ export class Game {
     const verb = ALIASES[first.toLowerCase()] ?? first.toLowerCase();
     const arg = rest.join(' ');
     switch (verb) {
-      case 'look': this.look(); break;
-      case 'sweep': this.sweep(); break;
+      case 'system': this.look(); break;
       case 'ops': this.ops(); break;
       case 'scoop': case 'ice': case 'mine': case 'survey': case 'scan': case 'repair':
         this.assign(verb, arg); break;
@@ -386,16 +392,9 @@ export class Game {
     if (s.stats.jumps > 0) {
       this.mindSays(GUIDE.done);
       s.guide = undefined;
-    } else if (s.guide === 0 && this.mem.swept) {
-      const giant = this.here.bodies.filter((b) => b.fuel > 0).sort((a, b) => b.fuel - a.fuel)[0];
-      if (giant) {
-        this.mindSays(fill(GUIDE.swept, { where: capital(bodyRef(this.here, giant.n)) }));
-        this.dim(fill(GUIDE.sweptHint, { n: giant.n }));
-      } else {
-        this.mindSays(GUIDE.sweptBare);
-        this.dim(GUIDE.sweptBareHint);
-      }
-      s.guide = 1;
+    } else if (s.guide === 0) {
+      // Only when the opening lines were never shown: they say this themselves.
+      this.guideFirst();
     } else if (s.guide === 1 && s.crews.some((c) => c !== null)) {
       this.mindSays(GUIDE.working);
       this.dim(GUIDE.workingHint);
@@ -409,6 +408,19 @@ export class Game {
       this.dim(GUIDE.chartedHint);
       s.guide = 4;
     }
+  }
+
+  /** The first step of the walk-through: what the table is, and what to do with two idle crews. */
+  private guideFirst() {
+    const giant = this.here.bodies.filter((b) => b.fuel > 0).sort((a, b) => b.fuel - a.fuel)[0];
+    if (giant) {
+      this.mindSays(fill(GUIDE.first, { where: capital(bodyRef(this.here, giant.n)) }));
+      this.dim(fill(GUIDE.firstHint, { n: giant.n }));
+    } else {
+      this.mindSays(GUIDE.firstBare);
+      this.dim(GUIDE.firstBareHint);
+    }
+    this.state.guide = 1;
   }
 
   status(): Status {
@@ -430,12 +442,11 @@ export class Game {
   /** Commands worth offering as one-tap buttons right now. */
   chips(): string[] {
     const s = this.state;
-    if (!this.mem.swept) return ['sweep', 'chart', 'ship', 'ask', 'help'];
     if ((this.lastVerb === 'chart' || this.lastVerb === 'gas') && s.chart.length) {
       const others = (['chart close', 'chart', 'chart far'] as const).filter((_, i) => i !== ['close', 'mid', 'far'].indexOf(this.lastZoom));
-      return [...s.chart.slice(0, 5).map((_, i) => `plot ${i + 1}`), ...others, 'look'];
+      return [...s.chart.slice(0, 5).map((_, i) => `plot ${i + 1}`), ...others, 'system'];
     }
-    if (this.lastVerb === 'plot' && s.plot) return ['burn', 'burn eco', 'chart', 'look'];
+    if (this.lastVerb === 'plot' && s.plot) return ['burn', 'burn eco', 'chart', 'system'];
     const chips: string[] = [];
     if (s.crews.some((c) => c === null)) {
       for (const job of this.suggestions()) if (chips.length < 3) chips.push(job);
@@ -444,7 +455,7 @@ export class Game {
     const ready = (Object.keys(REFITS) as RefitTrack[]).find((t) => this.refitState(t) === 'ready');
     if (ready && s.crews.some((c) => c === null)) chips.push(`refit ${ready}`);
     // The same five always close the row, so they are where the thumb expects them.
-    chips.push('look', 'ops', 'chart', 'ship', 'ask');
+    chips.push('system', 'ops', 'chart', 'ship', 'ask');
     // While the walkthrough is pointing at the chart, put it first.
     if (s.guide === 3) return ['chart', ...chips.filter((c) => c !== 'chart')];
     return chips;
@@ -470,9 +481,8 @@ export class Game {
     return new Set(this.people().sites.filter((x) => x.alive && x.kind === 'home').map((x) => x.body));
   }
 
-  /** Ruins here that nobody has read yet. They only show once the system has been swept. */
+  /** Ruins here that nobody has read yet. */
   private ruins(): Site[] {
-    if (!this.mem.swept) return [];
     return this.people().sites.filter((x) => !x.alive && !this.mem.sites.includes(x.culture.id));
   }
 
@@ -490,7 +500,7 @@ export class Game {
     const offers: { text: string; worth: number }[] = [];
     if (b.kind === 'star' && STARS[this.here.star].wind) offers.push({ text: 'wind', worth: 1 });
     if (b.fuel) offers.push({ text: `fuel${mark(b.fuel)}`, worth: b.fuel });
-    // Until the survey has charted a body, all the sweep can say is that there is something to dig.
+    // Until the survey has charted a body, all that can be said is that there is something to dig.
     if (!known && b.seams.length) offers.push({ text: 'ore?', worth: 0.5 });
     if (known) for (const seam of b.seams) offers.push({ text: `${MATERIAL[seam.material].short}${PLUS[seam.grade]}`, worth: seam.grade + (seam.material === 'heavy' ? 2 : seam.material === 'carbon' ? 1.01 : 0) });
     if (b.ice) offers.push({ text: `ice${mark(b.ice)}`, worth: b.ice - 0.1 });
@@ -616,7 +626,7 @@ export class Game {
     }
   }
 
-  /** Point out a ruin the sweep has picked up. Whose it was takes a deep scan. */
+  /** Point out a ruin seen on the way in. Whose it was takes a deep scan. */
   private noticeRuin(site: Site) {
     const s = this.state;
     const sys = this.here;
@@ -632,13 +642,13 @@ export class Game {
 
   /**
    * Take stock of who is here: say what has become of those we knew, greet
-   * anyone new, and point out ruins once the system has been swept. What we
-   * see is remembered, so that the next visit can tell the difference.
+   * anyone new, and point out ruins. What we see is remembered, so that the
+   * next visit can tell the difference.
    *
-   * `when` is the occasion: arriving, the first sweep, or the end of a stay
-   * during which something changed.
+   * `when` is the occasion: arriving, or the end of a stay during which
+   * something changed.
    */
-  private takeNote(when: 'arrive' | 'sweep' | 'stay') {
+  private takeNote(when: 'arrive' | 'stay') {
     const s = this.state;
     const sys = this.here;
     const mem = this.mem;
@@ -646,7 +656,7 @@ export class Game {
     const before = mem.seen;
     const back = when === 'arrive' && mem.visits > 1;
     const name = this.nameOf(sys.ref.id);
-    if (when !== 'sweep') {
+    {
       let weathered = false;
       for (const note of before) {
         const site = now.sites.find((x) => x.culture.id === note.id);
@@ -680,8 +690,7 @@ export class Game {
       if (site.alive) {
         if (!known) this.meet(site, back);
       } else if (!known) {
-        // Ruins nobody has pointed out yet: only a swept system shows them.
-        if (!mem.swept) continue;
+        // Ruins nobody has pointed out yet.
         if (!mem.sites.includes(site.culture.id)) this.noticeRuin(site);
       }
       notes.push(site.alive ? { id: site.culture.id, phase: site.phase, title: site.culture.title } : { id: site.culture.id, phase: site.phase });
@@ -693,14 +702,16 @@ export class Game {
 
   // ---- looking, continued -------------------------------------------------
 
+  /** The system as the approach showed it and the survey has filled it in, and what each crew is doing. */
   private look() {
-    const sys = this.here;
     this.heading();
-    if (!this.mem.swept) {
-      this.text(`${this.starText(sys)} Nothing else here has been looked at yet.`);
-      return;
-    }
     this.pre([...this.systemTable(), '', ...this.state.crews.map((c, i) => ` crew ${i + 1}  ${c ? this.describe(c) : 'idle'}`)]);
+    this.legend();
+  }
+
+  /** What the marks in the system table mean, where any of them appear. */
+  private legend() {
+    const sys = this.here;
     const k = sys.discoveries.length;
     const lived = this.people().sites.some((x) => x.alive);
     const legend = [`survey ${k ? Math.round((100 * this.mem.found) / k) : 100}%`, '! marks something worth a deep scan'];
@@ -710,36 +721,32 @@ export class Game {
     if (k || lived || this.scanTargets().length) this.dim(legend.join(' · '));
   }
 
-  private sweep() {
-    const sys = this.here;
+  /**
+   * The first look at a system is had on the way in: weeks of braking, with
+   * every instrument turned on where we are going. It costs nothing and is
+   * never asked for. This records the star for the Archive and says what the
+   * look was worth; showing the table is left to whoever calls.
+   */
+  private approach(): { credit: number; first: boolean } {
     const s = this.state;
-    if (this.mem.swept) {
-      this.look();
-      return;
-    }
-    this.mem.swept = true;
-    this.heading();
-    if (!s.visit.starShown) this.text(this.starText(sys));
-    s.visit.starShown = true;
-    this.pre(this.systemTable());
-    let credit = 2;
-    const key = `star:${sys.star}`;
-    if (!s.seen[key]) {
-      credit += 4;
-      this.good(`First ${STARS[sys.star].name} in the Archive.`);
-    }
+    const key = `star:${this.here.star}`;
+    const first = !s.seen[key];
     s.seen[key] = (s.seen[key] ?? 0) + 1;
+    const credit = first ? 6 : 2;
     s.ship.archive += credit;
-    const bodies = sys.bodies.length - 1;
-    this.dim(`${bodies === 0 ? 'No bodies' : bodies === 1 ? 'One body' : `${bodies} bodies`} resolved. Archive +${credit}. A survey would say what they are worth.`);
-    this.takeNote('sweep');
+    return { credit, first };
+  }
 
+  /** What the Mind has to say about a system at first sight, if anything stands out. */
+  private firstSight(): string | null {
+    const sys = this.here;
+    const bodies = sys.bodies.length - 1;
     const has = (f: (b: Body) => boolean) => sys.bodies.some(f);
-    if (sys.anomaly) this.say('sweep_anomaly');
-    else if (bodies === 0) this.say('sweep_empty');
-    else if (sys.giants === 0) this.say('sweep_nogiant');
-    else if (has((b) => b.ice > 0) && has((b) => b.seams.some((x) => x.material === 'metals' && x.grade > 1)) && bodies >= 5) this.say('sweep_rich');
-    this.sayOnce(`star_${sys.star}`, `star_${sys.star}`);
+    if (sys.anomaly) return 'sweep_anomaly';
+    if (bodies === 0) return 'sweep_empty';
+    if (sys.giants === 0) return 'sweep_nogiant';
+    if (has((b) => b.ice > 0) && has((b) => b.seams.some((x) => x.material === 'metals' && x.grade > 1)) && bodies >= 5) return 'sweep_rich';
+    return null;
   }
 
   // ---- crews and work -----------------------------------------------------
@@ -791,9 +798,9 @@ export class Game {
     return MATERIALS.reduce((sum, m) => sum + this.state.ship.hold[m], 0);
   }
 
-  /** Has the survey said what this body holds? The star needs no survey: the sweep is enough. */
+  /** Has the survey said what this body holds? The star needs no survey: it was plain on the way in. */
   private known(b: Body): boolean {
-    return b.kind === 'star' ? this.mem.swept : this.charted(b.n);
+    return b.kind === 'star' || this.charted(b.n);
   }
 
   /** What a seam gives a day when nobody has touched it. */
@@ -860,7 +867,7 @@ export class Game {
     const cost = (t: RefitTrack) => refitCost(t, s.ship.levels[t]);
     const short = (t: RefitTrack) => MATERIALS.reduce((sum, m) => sum + Math.max(0, (cost(t).needs[m] ?? 0) - s.ship.hold[m]), 0);
     // What this system cannot supply counts against a refit first: there is no use aiming at one that needs a material that is not here.
-    const here = new Set(this.mem.swept ? this.openSeams().map((x) => x.seam.material) : MATERIALS);
+    const here = new Set(this.openSeams().map((x) => x.seam.material));
     const blocked = (t: RefitTrack) => MATERIALS.reduce((sum, m) => sum + (here.has(m) ? 0 : Math.max(0, (cost(t).needs[m] ?? 0) - s.ship.hold[m])), 0);
     const open = tracks.filter((t) => s.ship.archive >= cost(t).archive).sort((a, b) => blocked(a) - blocked(b) || short(a) - short(b))[0];
     if (open) return { track: open, open: true };
@@ -894,7 +901,6 @@ export class Game {
   private suggestions(): string[] {
     const sys = this.here;
     const s = this.state;
-    if (!this.mem.swept) return [];
     const busy = (op: Op, body = -1) => s.crews.some((c) => c && c.op === op && (body < 0 || c.body === body));
     const homes = this.homes();
     const best = (key: 'fuel' | 'ice') =>
@@ -932,10 +938,6 @@ export class Game {
   private ops() {
     const sys = this.here;
     const s = this.state;
-    if (!this.mem.swept) {
-      this.text('Nothing here has been looked at yet. Sweep first.');
-      return;
-    }
     const lines: string[] = [];
     s.crews.forEach((c, i) => lines.push(` crew ${i + 1}  ${c ? this.describe(c) : 'idle'}`));
     lines.push('', ' work here');
@@ -968,10 +970,6 @@ export class Game {
   private assign(op: Op, arg: string) {
     const sys = this.here;
     const s = this.state;
-    if (!this.mem.swept) {
-      this.text('Nothing here has been looked at yet. Sweep first.');
-      return;
-    }
     const free = s.crews.findIndex((c) => c === null);
     if (free < 0) {
       this.text(`${s.crews.length === 2 ? 'Both' : 'All'} crews are busy. Recall one first ("recall 1").`);
@@ -1629,7 +1627,7 @@ export class Game {
         const sys = this.system(x.ref.id);
         const visited = s.mem[x.ref.id];
         let sees = '?';
-        if (visited?.swept || x.dist <= nearRange) sees = `${'O'.repeat(Math.min(3, sys.giants)) || '-'} ${'~'.repeat(sys.dust) || '-'}`;
+        if (visited || x.dist <= nearRange) sees = `${'O'.repeat(Math.min(3, sys.giants)) || '-'} ${'~'.repeat(sys.dust) || '-'}`;
         const marks = `${flagged(x) ? '!' : ' '}${loud.has(x.ref.id) ? '^' : ' '}`;
         // One character for the gas on the way there, in the map's own shading. A cloud anywhere on the line counts.
         const leg = planLeg(this.galaxy, here, x.ref, this.drive, 1);
@@ -1728,7 +1726,7 @@ export class Game {
     const strata = this.galaxy.cfg.strata;
     const mem = s.mem[sys.ref.id];
     const parts = [`${this.nameOf(sys.ref.id)}: ${starLine(sys)}, ${ly(dist)} light-years off. ${this.starText(sys)}`];
-    if (mem?.swept || dist <= strata[0].sight * optics) {
+    if (mem || dist <= strata[0].sight * optics) {
       const giants = sys.giants === 0 ? 'No giants' : sys.giants === 1 ? 'One giant' : `${sys.giants} giants`;
       const dust = ['no dust to speak of', 'a little dust', 'a fair infrared excess, so belts or comets', 'a strong infrared excess: belts, comets or both'][sys.dust];
       parts.push(`${giants}, and ${dust}.`);
@@ -1899,7 +1897,7 @@ export class Game {
     s.plot = undefined;
     s.chart = [];
     s.crews = s.crews.map(() => null);
-    s.visit = { arrived: s.tShip, provisioned: false, slow: false, long: false, hinted: false, idle: false, starShown: true, lastAdvice: '', plots: 0 };
+    s.visit = { arrived: s.tShip, provisioned: false, slow: false, long: false, hinted: false, idle: false, lastAdvice: '', plots: 0 };
     const known = s.mem[sys.ref.id];
     const gap = known ? s.tGal - known.last : 0;
     if (known) {
@@ -1923,6 +1921,17 @@ export class Game {
     if (!known) this.text(this.starText(sys));
     if (breach >= 0.5) this.out.push({ k: 'alert', s: `The shield gave out on the way. Hull down ${Math.round(breach)} points.` });
 
+    // The system was looked over on the way in, so it is on the table as we make orbit.
+    this.pre(this.systemTable());
+    if (known) {
+      this.legend();
+    } else {
+      const { credit, first } = this.approach();
+      if (first) this.good(`First ${STARS[sys.star].name} in the Archive.`);
+      const bodies = sys.bodies.length - 1;
+      this.dim(`${bodies === 0 ? 'No bodies' : bodies === 1 ? 'One body' : `${bodies} bodies`} resolved on the way in. Archive +${credit}. A survey would say what they are worth.`);
+    }
+
     // Other people come first. If the Mind has something to say about them, it skips its usual remark.
     const spoken = this.out.filter((o) => o.k === 'mind').length;
     this.takeNote('arrive');
@@ -1930,8 +1939,10 @@ export class Game {
       const { sites, claims } = this.people();
       if (claims.length && !sites.some((x) => x.alive) && s.stats.systems % 2 === 0) this.say('civ_claim');
       else if (known) this.say('revisit', { sys: this.nameOf(sys.ref.id), gap: spanWords(gap) });
-      else this.say('arrive', { light: spanWords(leg.dist), outside: spanWords(leg.galaxy) });
+      // One remark about a new place: what stands out in it, or else the arrival itself.
+      else this.say(this.firstSight() ?? 'arrive', { light: spanWords(leg.dist), outside: spanWords(leg.galaxy) });
     }
+    if (!known) this.sayOnce(`star_${sys.star}`, `star_${sys.star}`);
 
     const d = s.mind.dissent;
     if (d) {
@@ -1972,7 +1983,6 @@ export class Game {
   private advice(): string | null {
     const s = this.state;
     const sys = this.here;
-    if (!this.mem.swept) return "We've done nothing here but park. A sweep costs an hour.";
     const free = s.crews.filter((c) => c === null).length;
     const jobs = this.suggestions();
     if (free > 0 && jobs.length) {
@@ -2179,12 +2189,11 @@ export class Game {
 
   private help() {
     this.pre([
-      ' the loop: sweep, put crews to work, stay;',
+      ' the loop: put crews to work, stay;',
       ' then chart, plot and burn',
       '',
       ' here',
-      '  sweep       first look at this system',
-      '  look        the system, and the crews',
+      '  system      this system, and the crews',
       '  ops         the work on offer here',
       '  scoop N     fuel from a giant (0 = star)',
       '  ice N       rebuild the shield',

@@ -1,6 +1,6 @@
 # ClaudeSpaceFiction
 
-A text prototype for **Lightspeed**: a forever cruise on a relativistic worldship. You are the navigator, woken by the ship's Mind when there is something to decide. Arrive, sweep the system, put crews to work, stay as long as it pays, pick the next star, burn.
+A text prototype for **Lightspeed**: a forever cruise on a relativistic worldship. You are the navigator, woken by the ship's Mind when there is something to decide. Arrive, see what the approach showed, put crews to work, stay as long as it pays, pick the next star, burn.
 
 The point of the prototype is to find out what is fun before anything is drawn.
 
@@ -15,12 +15,12 @@ In a terminal:
 ```
 npm install
 npm run play                  # interactive
-node tools/play.ts sweep ops  # run some commands and exit
+node tools/play.ts system ops # run some commands and exit
 ```
 
 ## What is in this slice
 
-- **The loop.** `sweep` a system, assign crews (`scoop` fuel from giants, cut `ice` for the forward shield, `mine` stock for the hold, `survey`, deep `scan` oddities, `repair`), let days pass with `stay`, then `chart`, `plot` and `burn`. `look` shows the system and what each crew is doing; `ship` shows the ship and its refits.
+- **The loop.** Arrive, and the system is already on the table: the ship looked it over while braking in. Assign crews (`scoop` fuel from giants, cut `ice` for the forward shield, `mine` stock for the hold, `survey`, deep `scan` oddities, `repair`), let days pass with `stay`, then `chart`, `plot` and `burn`. `system` shows the system again and what each crew is doing; `ship` shows the ship and its refits. What the approach cannot tell you is what anything is worth: that takes a `survey`, which needs crews, closeness and time.
 - **Two clocks.** Every trip costs time aboard and more time outside.
 - **Gas sets the speed.** In gas of density n the ship cruises at gamma = sqrt(1 + P / n), where P grows with engine thrust and hull grade. Thin gas is fast; clouds are walls for a young ship. `chart far` shows where it lies.
 - **Two ways to burn.** `burn` goes at full thrust. `burn eco` goes at a quarter: fuel use goes as thrust squared, so it is far cheaper, but it takes about twice as long and time under way wears the hull.
@@ -32,7 +32,7 @@ node tools/play.ts sweep ops  # run some commands and exit
 - **Refits.** Knowledge in the Archive unlocks them; particular materials and crew time pay for them. The early ones need what is common, the last ones need heavy elements, so the far chart becomes a ladder.
 - **The Mind.** A written voice with its own tastes, a dissent it logs and later checks, and a habit of noticing how you leave places.
 - **Other people.** About one system in a hundred is somebody's home, more in the old cluster where the voyage starts. None of them are human. Each culture is born, rises, declines and ends; a few spread to hold the stars around them for a while. Their radio shows as `^` on the charts, as old as the light that carries it. Come back after a long haul and they may have changed, or be gone.
-- **Ruins and relics.** A culture that has ended leaves ruins for a few thousand years, and then nothing. The chart flags unread ruins close by, a sweep picks them out, and a deep scan says whose they were and now and then brings something back for the hold.
+- **Ruins and relics.** A culture that has ended leaves ruins for a few thousand years, and then nothing. The chart flags unread ruins close by, they are pointed out as you arrive, and a deep scan says whose they were and now and then brings something back for the hold.
 
 Not here yet: dealing with the people you meet (terms, tolls, trade, and what happens when you ignore them), other ships and their invitations, the permanent waypoint systems, marks the navigator leaves behind, and transients.
 

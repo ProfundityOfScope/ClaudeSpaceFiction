@@ -33,7 +33,6 @@ function visit(g: Game, ref: SysRef) {
   assert.equal(g.state.at, ref.id);
   g.state.ship.levels = levels;
   Object.assign(g.state.ship, { fuel: 3, shield: 100, hull: 100 });
-  g.exec('sweep');
   g.state.mem[ref.id].found = g.here.discoveries.length;
 }
 
@@ -67,7 +66,6 @@ test('seams are part of what a system is, and each material comes from its own k
 
 test('a body has to be charted before it can be mined, and a material can be asked for by name', () => {
   const g = Game.fresh();
-  g.exec('sweep');
   const b = g.here.bodies.find((x) => x.seams.length > 1)!;
   assert.match(said(g.exec(`mine ${b.n}`)), /have not said what .* holds yet/);
   g.state.mem[g.state.at].found = g.here.discoveries.length;
@@ -84,7 +82,6 @@ test('a body has to be charted before it can be mined, and a material can be ask
 
 test('one hold for everything: mining stops when it is full, and dumping makes room', () => {
   const g = Game.fresh();
-  g.exec('sweep');
   g.state.mem[g.state.at].found = g.here.discoveries.length;
   const b = g.here.bodies.find((x) => x.seams.length > 0)!;
   g.state.ship.hold.metals = 138;
@@ -220,7 +217,6 @@ test('refits are built from particular materials, common ones first and heavy el
   }
   assert.ok((refitCost('engine', 6).needs.heavy ?? 0) > 0 && (refitCost('optics', 3).needs.heavy ?? 0) > 0);
   const g = Game.fresh();
-  g.exec('sweep');
   g.state.ship.archive = 1000;
   g.state.ship.hold.metals = 40;
   assert.match(said(g.exec('refit engine')), /We are short 54 isotopes/);
@@ -233,7 +229,6 @@ test('refits are built from particular materials, common ones first and heavy el
 
 test('repairs use metals, and nothing else will do', () => {
   const g = Game.fresh();
-  g.exec('sweep');
   g.state.ship.hull = 60;
   g.state.ship.hold = { volatiles: 100, metals: 0, carbon: 0, isotopes: 0, heavy: 0 };
   assert.match(said(g.exec('repair')), /no metal to mend with/);

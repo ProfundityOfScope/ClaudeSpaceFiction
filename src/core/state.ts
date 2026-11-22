@@ -62,7 +62,6 @@ export interface Memory {
   first: number;
   last: number;
   visits: number;
-  swept: boolean;
   /** Crew-days of survey so far, and how many discoveries that has produced. */
   effort: number;
   found: number;
@@ -80,7 +79,7 @@ export interface Memory {
 }
 
 export function freshMemory(year: number): Memory {
-  return { first: year, last: year, visits: 1, swept: false, effort: 0, found: 0, scanned: [], sites: [], seen: [], taken: {} };
+  return { first: year, last: year, visits: 1, effort: 0, found: 0, scanned: [], sites: [], seen: [], taken: {} };
 }
 
 /** Raised whenever an old save can no longer be read. Older voyages start afresh. */
@@ -117,7 +116,6 @@ export interface State {
     hinted: boolean;
     idle: boolean;
     /** The star has already been described this visit. */
-    starShown: boolean;
     lastAdvice: string;
     /** Courses plotted this visit; the Mind only comments on the first unremarkable one. */
     plots?: number;
@@ -216,7 +214,7 @@ export function freshState(galaxy: Galaxy, seed: number): State {
     tGal: 0,
     at: start.id,
     crews: [null, null],
-    visit: { arrived: 0, provisioned: false, slow: false, long: false, hinted: false, idle: false, starShown: false, lastAdvice: '' },
+    visit: { arrived: 0, provisioned: false, slow: false, long: false, hinted: false, idle: false, lastAdvice: '' },
     mem: { [start.id]: freshMemory(0) },
     met: {},
     seen: {},
@@ -246,7 +244,6 @@ function packMemory(m: Memory): Record<string, unknown> {
   if (m.last !== m.first) out.last = m.last;
   if (m.name !== undefined) out.name = m.name;
   if (m.visits !== BLANK.visits) out.visits = m.visits;
-  if (m.swept) out.swept = true;
   if (m.effort) out.effort = m.effort;
   if (m.found) out.found = m.found;
   if (m.scanned.length) out.scanned = m.scanned;

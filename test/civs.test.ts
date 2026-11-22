@@ -143,7 +143,6 @@ test('arriving where somebody lives: they are named, noted and left their home',
   assert.ok(said(out).includes(site.culture.title));
   assert.equal(g.state.met[site.culture.id]?.how, 'met');
   assert.ok(g.state.ship.archive >= CIV.MEET_ARCHIVE);
-  g.exec('sweep');
   assert.match(said(g.exec('look')), new RegExp(`${site.body}\\^`));
   assert.match(said(g.exec(`mine ${site.body}`)), /somebody's home/);
   assert.match(said(g.exec(`ice ${site.body}`)), /somebody's home/);
@@ -159,7 +158,6 @@ test('coming back after they have ended: ruins, and later nothing at all', () =>
   const g = Game.fresh();
   const target = nearby.find((s) => sitesAt(s.ref, 10).some((x) => x.alive && x.kind === 'home'))!;
   fly(g, target.ref.id);
-  g.exec('sweep');
   const c = g.people().sites.find((x) => x.alive)!.culture;
   fly(g, start.id);
   g.state.tGal = c.born + c.life + 50;
@@ -190,10 +188,9 @@ test('reading a ruin: whose it was, credit, and it is not offered twice', () => 
     const sites = sitesAt(s.ref, 30);
     return sites.length > 0 && sites.every((x) => !x.alive);
   })!;
-  fly(g, target.ref.id);
-  assert.doesNotMatch(said(g.exec('look')), /deep scan/, 'nothing shows before the sweep');
-  const swept = said(g.exec('sweep'));
-  assert.match(swept, /would say whose it was/);
+  // Ruins are seen on the way in, like everything else big enough to see.
+  assert.match(said(fly(g, target.ref.id)), /would say whose it was/);
+  assert.match(said(g.exec('system')), /deep scan/);
   const site = g.people().sites.find((x) => !x.alive)!;
   const before = g.state.ship.archive;
   assert.match(said(g.exec(`scan ${site.body}`)), /deep scan/);
@@ -210,7 +207,6 @@ test('reading a ruin: whose it was, credit, and it is not offered twice', () => 
 
 test('a signal on the chart is what the light shows', () => {
   const g = Game.fresh();
-  g.exec('sweep');
   const rows = g.exec('chart').find((o) => o.k === 'pre')!.s.split('\n');
   const loud = rows.filter((r) => r.endsWith('^'));
   assert.ok(loud.length > 0, 'the first chart shows a signal');
@@ -224,7 +220,6 @@ test('a signal on the chart is what the light shows', () => {
 
 test('unread ruins near enough to resolve are flagged on the chart, until they are read', () => {
   const g = Game.fresh();
-  g.exec('sweep');
   const rows = g.exec('chart').find((o) => o.k === 'pre')!.s.split('\n').slice(1);
   const ruined = g.state.chart.filter((id) => sitesAt(galaxy.ref(id)!, 0).some((x) => !x.alive));
   assert.ok(ruined.length > 0, 'the first chart lists somewhere with ruins');
@@ -232,7 +227,6 @@ test('unread ruins near enough to resolve are flagged on the chart, until they a
   // Read one, come away, and its flag is gone.
   const id = ruined[0];
   fly(g, id);
-  g.exec('sweep');
   for (const site of g.people().sites.filter((x) => !x.alive)) {
     g.exec(`scan ${site.body}`);
     g.exec('stay 200');
@@ -255,7 +249,6 @@ test('space somebody holds is drawn as a hull round their systems, once we know 
   }
   assert.ok(reach, 'a spreading culture within a few hundred light-years');
   const g = Game.fresh();
-  g.exec('sweep');
   assert.equal(g.exec('chart').find((o) => o.k === 'map')!.map!.held, undefined, 'nothing is drawn where nobody is known');
   g.state.ship.levels.engine = 10;
   g.state.ship.levels.hull = 10;
