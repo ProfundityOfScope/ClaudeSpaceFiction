@@ -1,13 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync } from 'node:fs';
-import { resolveFilm } from '../video/snippets.ts';
-import type { Film } from '../video/types.ts';
+import { resolveFilm } from '../media/video/snippets.ts';
+import type { Film } from '../media/video/types.ts';
 
-// Every script in video/films is checked, so a new film is covered as soon as it exists.
+// Every script in media/video/films is checked, so a new film is covered as soon as it exists.
 const films: [string, Film][] = [];
-for (const file of readdirSync('video/films').filter((f) => f.endsWith('.ts'))) {
-  films.push([file, ((await import(`../video/films/${file}`)) as { film: Film }).film]);
+for (const file of readdirSync('media/video/films').filter((f) => f.endsWith('.ts'))) {
+  films.push([file, ((await import(`../media/video/films/${file}`)) as { film: Film }).film]);
 }
 
 test('there is at least the example film', () => {

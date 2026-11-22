@@ -189,6 +189,25 @@ Notes for step 2: terms attach where `meet` and `homes()` are. The emergency exi
 - Do not force-push. A built-in safety check refuses `rm` with a glob after a `cd`; write to fresh paths instead.
 - The cloud environment `ClaudeSpaceFiction` allows `huggingface.co` and `us.aws.cdn.hf.co`, for the narration voice.
 
-## The video renderer
+## Media: concept art and the video renderer
 
-`video/` makes narrated walkthroughs; `video/README.md` explains it. Five tutorial chapters were made for the owner and then removed from the repo (recoverable from pull request #2). The chosen narrator is `am_michael`. A fresh container needs the fonts, `kokoro-onnx`, and the two model files again.
+Everything that is about the game rather than part of it lives in `media/`; `media/README.md` shows and explains it.
+
+### The two-screen phone concept (`media/concepts/`)
+
+The owner is thinking ahead to a more visual app, on a phone that folds open into one wide screen. Three passes of concept art were made on a private design canvas (an Artifact named "Lightspeed on the Duo"; find it in the artifact list). The third pass is the one the owner called right, bar small tweaks, and its three boards are saved as images. Nothing of it is built, and none of it should leak into the text prototype unasked. What the owner settled:
+
+- **Opened, it is one screen.** The star chart runs across the whole device. Whatever else is shown sits on top of the map, so there is no separate picture for the system.
+- **One bubble** of glass over the right half holds everything that is not the map: the system's name, the clock, the tab's content, the tabs.
+- **Three tabs**: Command (the terminal and log as they are today), Ship (condition, hold, refits), Ops (the system as a row of bodies, crews, work on offer, staying). Along the bottom of the bubble when open; down its right edge when the phone is folded.
+- **Only Command takes typed input.** Ops and Ship are buttons.
+- **Tapping a star** draws the course on the map and switches to Command, where the tap appears in the log as a `plot` with its output, and the burns are offered as buttons.
+- **The chart moves by hand** (pinch and drag): no zoom buttons and no information pane on the map.
+- **One clock**, in the bubble's top corner; tap to switch between aboard and outside.
+- **Glass over pixels**: the world stays chunky; controls are smooth glass that shows what is behind it at double pixel size instead of blurring it.
+
+How the images were made, in case more are wanted: the map was drawn from the real galaxy (default seed, the system Alder RN-989 inside the Neithi Expanse) by a throwaway script, the boards were written as HTML on the canvas, and the same HTML was rendered to PNG with Playwright. The scripts were not kept; the canvas has the boards. The ring for how far a hard burn reaches is invented, and would be a good small feature for the real chart.
+
+### The video renderer (`media/video/`)
+
+Makes narrated walkthroughs. Five tutorial chapters were made for the owner and then removed from the repo (recoverable from pull request #2). The chosen narrator is `am_michael`. A fresh container needs the fonts, `kokoro-onnx`, and the two model files again.

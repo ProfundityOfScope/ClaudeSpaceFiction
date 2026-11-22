@@ -52,7 +52,7 @@ TypeScript, no framework, no runtime dependencies. The game core never touches t
 | `src/core/game.ts` | The commands |
 | `src/web/` | The page |
 | `tools/` | Build script, terminal player, the bot, and the census of who is out there |
-| `video/` | A small renderer for narrated code-walkthrough videos |
+| `media/` | Concept art for a later, more visual version, and a small renderer for narrated code-walkthrough videos |
 
 Nothing about the galaxy is stored. A save holds the ship, the clocks and what the navigator has seen; everything else is regenerated from the seed. That includes history: who is home at a system in a given year is a function of the seed, the system and the year, so the galaxy can be asked about any date without ever being stepped through time. The demo galaxy is a 6,000 light-year disc of three million systems; `radius` and `totalSystems` in `config.ts` are the only numbers to change to make it larger.
 
@@ -69,6 +69,8 @@ npm run census   # how many cultures, outposts and ruins there are, and how far 
 
 `docs/index.html` is generated; edit `src/` and rebuild.
 
-## Videos
+## Media
 
-`video/` can turn a short script into a narrated video that quotes this repository's real code. It is there for making tutorials; see `video/README.md`.
+`media/` holds things about the game that are not the game. `media/concepts/` has concept art for a later version with more to look at: the same game as an app on a two-screen phone, with the star chart across the whole device and everything else in one pane of glass on top of it. `media/video/` can turn a short script into a narrated video that quotes this repository's real code, for making tutorials. `media/README.md` shows the pictures and explains both.
+
+![Concept art: the game as a phone app, opened like a book, with the star chart across both halves and a glass pane over the right half](media/concepts/duo-ops.png)
