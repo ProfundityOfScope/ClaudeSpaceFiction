@@ -10,7 +10,7 @@ A text prototype of the game Lightspeed: a forever cruise on a relativistic worl
 
 - `main` = slice 1, the video renderer, onboarding and tuning, and the pixel maps. `v0.1.0` tags slice 1 (commit 8461d87). Nothing since has been tagged; suggest `v0.1.1` or fold it into `v0.2.0`.
 - Public page: GitHub Pages serves `main` / `docs/`. Dev preview: a private Artifact named "Lightspeed", republished from `dist/artifact.html` (find it in the artifact list; pass its URL to update it in place).
-- Current branch of work: `claude/civilisations` (slice 2). A proposal has been put to the owner; do not build until they approve it.
+- Current branch of work: `claude/civilisations` (slice 2). The owner approved the design with changes (below). Step 1 is being built; stop after it for them to judge density.
 - Not yet heard: how the onboarding, the economy burn and the gas views played. Ask.
 
 ## What the owner wants (their steers, in order of weight)
@@ -102,9 +102,15 @@ Things to ask after the next play-test: is economy now worth choosing; is the hu
 - **Sameness comes later.** The tables of species, temperaments and lines will be fleshed out a lot afterwards, so build them as data that is easy to extend.
 - **Who is out there.** The ship carries humans, but not only humans. Nothing found out there is human.
 - **Consequences, but no death.** Hostility must cost something. The ship is well defended, and the Mind can override the navigator and force an emergency exit, possibly ending in a drift until rescue. The navigator never dies.
-- **Relics are not forever.** They can be picked up while a culture is in its stages, and they do not last indefinitely. Do not rewrite star generation to hold permanent relics. (Claude's reading: culture-derived ruins and relics are a separate layer computed from history, present for a limited window after a culture ends; the existing random relic finds stay as they are, as works of unknown makers.)
+- **Oddities, ruins and relics are three things.**
+  - *Oddities* (the survey's finds) should be mostly natural, a function of the kind of body, or things that can sit outside time, such as a derelict of unknown age. Use the timeless made things sparingly: radiation and drifting orbits would wear most of them away.
+  - *Ruins* are manifestations of a culture that has ended, and are temporary. Surface works such as the worked stone and the drowned sea walls belong here, not among the oddities.
+  - *Relics* are items: rare from some ruins, rarer still from oddities. They are carried in the hold and may be worth something to cultures of certain temperaments.
+  - Do not rewrite star generation to hold permanent relics.
+- **The emergency exit.** For now the Mind bails at 10% hull. Leave the hook for a smarter rule: the nearest empty system is known, so the cutoff can be placed where the resulting drift is painful but not catastrophic.
+- **Existing voyages may be invalidated** freely during testing. Saves are now version 2; older ones start afresh.
 
-### Slice 2 design (proposed)
+### Slice 2 design (approved; step 1 in progress)
 
 - **Generator, `civs.ts`, pure functions of (seed, place, year).**
   - *Worlds*: single-system cultures, looked up per system. Each era of a few thousand years, a system with a suitable body may see a culture arise: a start year, a lifespan (centuries to a few millennia), temperament genes, an identity. Rate set so about 1% of field systems are inhabited at any time; old clusters get a multiplier, which is what makes the starting cluster busy.
@@ -115,7 +121,7 @@ Things to ask after the next play-test: is economy now worth choosing; is the hu
 - **Seeing them.** In the heading and the sweep; a signal mark on the chart for loud cultures; a Reach's extent tinted on the wide map; `scope` says what the light shows.
 - **Contact.** They state terms on arrival (welcome, toll, keep out) by temperament, phase and how past visits went. Comply or ignore. Ignoring a strong culture escalates: warning, then damage, then the Mind takes the conn and burns for the nearest empty system. With dry tanks that becomes the long fall. Never a game over.
 - **Trade.** Each culture wants two things and offers two: materials, records by Archive category (each category once per culture), carried items; fuel, ice, repairs, help with a refit, charts that mark leads, their records, a keepsake. No prices.
-- **Ruins and relics.** A culture that ended within its ruin window leaves a site: noticed on the sweep or by survey, worth Archive, and a deep scan may yield an item once. After the window nothing remains.
+- **Ruins and relics.** A culture that ended within its ruin window leaves a site on a body: noticed on the sweep, worked with a deep scan for Archive and, rarely, a relic. After the window nothing remains. The made things left among the oddities (probe, beacon, vault, hulk, engineered rings, mined-out world) are rarity 3 and yield a relic only occasionally.
 - **Memory.** Per system: who was here and in what phase at the last visit, so a return prints the difference. Per culture met: standing and what has been traded.
 - **Order of building**, each step playable: (a) the generator and seeing them, with a bot census to tune density; (b) contact and consequences; (c) trade, items and leads.
 
