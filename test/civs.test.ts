@@ -221,3 +221,47 @@ test('a signal on the chart is what the light shows', () => {
   }
   assert.ok(g.exec('gas').find((o) => o.k === 'map')!.map!.stars.some((star) => star.signal), 'and the wide map marks signals');
 });
+
+test('unread ruins near enough to resolve are flagged on the chart, until they are read', () => {
+  const g = Game.fresh();
+  g.exec('sweep');
+  const rows = g.exec('chart').find((o) => o.k === 'pre')!.s.split('\n').slice(1);
+  const ruined = g.state.chart.filter((id) => sitesAt(galaxy.ref(id)!, 0).some((x) => !x.alive));
+  assert.ok(ruined.length > 0, 'the first chart lists somewhere with ruins');
+  for (const id of ruined) assert.match(rows[g.state.chart.indexOf(id)], /!\^?$/);
+  // Read one, come away, and its flag is gone.
+  const id = ruined[0];
+  fly(g, id);
+  g.exec('sweep');
+  for (const site of g.people().sites.filter((x) => !x.alive)) {
+    g.exec(`scan ${site.body}`);
+    g.exec('stay 200');
+  }
+  fly(g, start.id);
+  g.exec('chart');
+  const row = g.exec('chart').find((o) => o.k === 'pre')!.s.split('\n').slice(1)[g.state.chart.indexOf(id)];
+  if (row) assert.doesNotMatch(row, /!\^?$/);
+});
+
+test('space somebody holds is drawn as an edge round their systems, once we know of them', () => {
+  const cc = DEMO.coarse;
+  let reach: Culture | null = null;
+  for (let i = -3; i <= 3 && !reach; i++) {
+    for (let j = -3; j <= 3 && !reach; j++) {
+      for (const era of [0, -1, -2]) {
+        reach ??= cultures.reachesIn(Math.floor(start.x / cc) + i, Math.floor(start.y / cc) + j, era).find((c) => frontier(c, 500) > 10 && frontier(c, 0) > 10) ?? null;
+      }
+    }
+  }
+  assert.ok(reach, 'a spreading culture within a few hundred light-years');
+  const g = Game.fresh();
+  g.exec('sweep');
+  assert.equal(g.exec('chart').find((o) => o.k === 'map')!.map!.held, undefined, 'nothing is drawn where nobody is known');
+  g.state.ship.levels.engine = 10;
+  g.state.ship.levels.hull = 10;
+  const inside = galaxy.within(reach.home.x, reach.home.y, 5).find((s) => s.dist > 0)!;
+  fly(g, inside.ref.id);
+  const map = g.exec('chart').find((o) => o.k === 'map')!.map!;
+  assert.ok(map.held && map.held.length > 8, 'their home can be heard from here, so their space is drawn');
+  assert.equal(new Set(map.held).size, map.held.length);
+});

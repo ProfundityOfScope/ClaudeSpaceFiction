@@ -7,8 +7,8 @@
  *   node tools/bot.ts --deaf            ignore signals, to see who turns up by chance
  *
  * The bot is a plain, patient navigator: it provisions, surveys most of each
- * system, takes refits when offered, and prefers unvisited stars, signals and
- * oddities. It also counts who it meets, which is the check on how busy the
+ * system, takes refits when offered, and goes for whatever the chart picks out
+ * (signals, oddities, ruins) before the nearest unvisited star. It also counts who it meets, which is the check on how busy the
  * galaxy feels from the inside.
  */
 import { Game, type Out } from '../src/core/game.ts';
@@ -82,45 +82,51 @@ for (let j = 0; j < jumps && !stuck; j++) {
   run('recall');
   stays.push(game.state.tShip - arrived);
 
-  // Choose where to go: oddities first, then the nearest unvisited star we can afford.
-  // Every sixth jump, look at the wider sky instead and try for the farthest bright star.
+  // Choose where to go. Most jumps: whatever the chart picks out (signals, oddities, ruins), else the nearest
+  // unvisited star. Every sixth jump: the farthest bright star on the far chart.
   const far = j % 6 === 5;
-  const chart = run(far ? 'gas' : 'chart');
-  const rows = (chart.find((o) => o.k === 'pre')?.s ?? '').split('\n').filter((r) => /^ ?\d+[ *] /.test(r));
-  const options = rows.map((r) => ({ n: Number(r.slice(0, 2)), visited: r[2] === '*', odd: /!\^?$/.test(r), loud: r.endsWith('^') }));
-  const fresh = options.filter((o) => !o.visited);
-  const drawn = (o: { odd: boolean; loud: boolean }) => o.odd || (o.loud && !deaf);
-  const order = far
-    ? [...fresh.filter((o) => !o.loud)].reverse()
-    : [...fresh.filter(drawn), ...fresh.filter((o) => !drawn(o)), ...options.filter((o) => o.visited)];
   let gone = false;
   // First pass wants a comfortable arrival; the second takes any trip the tanks allow.
   for (const strict of [true, false]) {
-    for (const choice of order.slice(0, 9)) {
+    for (const view of far ? ['chart far', 'chart close'] : ['chart', 'chart close']) {
       if (gone) break;
-      const plot = run(`plot ${choice.n}`).find((o) => o.k === 'pre')?.s ?? '';
-      const read = (label: string) => {
-        const m = new RegExp(`^ ${label}\\s+(-?\\d+)%\\s+(-?\\d+)%\\s+(-?\\d+)%`, 'm').exec(plot);
-        return m ? { fuel: Number(m[1]), shield: Number(m[2]), hull: Number(m[3]) } : null;
-      };
-      const hard = read('hard');
-      const eco = read('eco');
-      let mode = '';
-      if (strict) {
-        if (hard && hard.fuel >= 20 && hard.shield >= 10 && hard.hull >= 50) mode = 'burn';
-        else if (eco && eco.fuel >= 10 && eco.shield >= 5 && eco.hull >= 50) mode = 'burn eco';
-      } else {
-        mode = eco ? 'burn eco' : hard ? 'burn' : '';
-      }
-      if (!mode) continue;
-      const before = game.state.at;
-      const lyBefore = game.state.stats.ly;
-      run(mode);
-      gone = game.state.at !== before;
-      if (gone) {
-        if (mode === 'burn eco') ecoBurns++;
-        longest = Math.max(longest, game.state.stats.ly - lyBefore);
-        lowestHull = Math.min(lowestHull, game.state.ship.hull);
+      const chart = run(view);
+      const rows = (chart.find((o) => o.k === 'pre')?.s ?? '').split('\n').filter((r) => /^ ?\d+[ *] /.test(r));
+      const options = rows.map((r) => ({ n: Number(r.slice(0, 2)), visited: r[2] === '*', odd: /!\^?$/.test(r), loud: r.endsWith('^') }));
+      const fresh = options.filter((o) => !o.visited);
+      const drawn = (o: { odd: boolean; loud: boolean }) => o.odd || (o.loud && !deaf);
+      const order =
+        view === 'chart far'
+          ? [...fresh.filter((o) => !o.loud)].reverse()
+          : view === 'chart'
+            ? fresh.filter(drawn)
+            : [...fresh, ...options.filter((o) => o.visited)];
+      for (const choice of order.slice(0, 9)) {
+        if (gone) break;
+        const plot = run(`plot ${choice.n}`).find((o) => o.k === 'pre')?.s ?? '';
+        const read = (label: string) => {
+          const m = new RegExp(`^ ${label}\\s+(-?\\d+)%\\s+(-?\\d+)%\\s+(-?\\d+)%`, 'm').exec(plot);
+          return m ? { fuel: Number(m[1]), shield: Number(m[2]), hull: Number(m[3]) } : null;
+        };
+        const hard = read('hard');
+        const eco = read('eco');
+        let mode = '';
+        if (strict) {
+          if (hard && hard.fuel >= 20 && hard.shield >= 10 && hard.hull >= 50) mode = 'burn';
+          else if (eco && eco.fuel >= 10 && eco.shield >= 5 && eco.hull >= 50) mode = 'burn eco';
+        } else {
+          mode = eco ? 'burn eco' : hard ? 'burn' : '';
+        }
+        if (!mode) continue;
+        const before = game.state.at;
+        const lyBefore = game.state.stats.ly;
+        run(mode);
+        gone = game.state.at !== before;
+        if (gone) {
+          if (mode === 'burn eco') ecoBurns++;
+          longest = Math.max(longest, game.state.stats.ly - lyBefore);
+          lowestHull = Math.min(lowestHull, game.state.ship.hull);
+        }
       }
     }
   }

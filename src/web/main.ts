@@ -79,21 +79,22 @@ function drawMap(map: MapData): HTMLCanvasElement | null {
     for (const [x, y] of points) ctx.fillRect(x, y, 1, 1);
   };
 
-  // Gas as haze: the thicker the gas, the stronger the haze.
-  const haze = [0, 0.12, 0.27, 0.45, 0.68].map((t) => blend(bg, token('--dim'), t));
-  for (let i = 0; i < map.gas.length; i++) cells(haze[Number(map.gas[i])], [[i % map.size, Math.floor(i / map.size)]]);
+  // Gas as a grey haze, in 36 even steps: the thicker the gas, the lighter the grey.
+  const haze = Array.from({ length: 36 }, (_, i) => blend(bg, token('--dim'), 0.78 * (i / 35) ** 1.15));
+  for (let i = 0; i < map.gas.length; i++) cells(haze[parseInt(map.gas[i], 36)], [[i % map.size, Math.floor(i / map.size)]]);
 
-  // Space somebody holds: a thin ring, under the stars.
-  const voice = token('--ok');
-  for (const ring of map.rings ?? []) {
+  // The next zoom in, as a dotted box, so that one view can be found on another.
+  if (map.inner) {
+    const lo = Math.round(map.size / 2 - map.inner);
+    const hi = Math.round(map.size / 2 + map.inner) - 1;
     const points: number[][] = [];
-    const steps = Math.max(12, Math.round(8 * ring.r));
-    for (let i = 0; i < steps; i++) {
-      const a = (i / steps) * 2 * Math.PI;
-      points.push([Math.round(ring.x + ring.r * Math.cos(a)), Math.round(ring.y + ring.r * Math.sin(a))]);
-    }
-    cells(blend(bg, voice, 0.5), points);
+    for (let i = lo; i <= hi; i += 2) points.push([i, lo], [i, hi], [lo, i], [hi, i]);
+    cells(blend(bg, ink, 0.3), points);
   }
+
+  // The edge of space somebody holds, under the stars.
+  const voice = token('--ok');
+  cells(blend(bg, voice, 0.7), (map.held ?? []).map((i) => [i % map.size, Math.floor(i / map.size)]));
 
   // Stars: faint unnumbered ones first, so the numbered ones sit on top of them.
   const m = map.size / 2;
@@ -165,8 +166,10 @@ function print(items: Out[]) {
       el.className = 'o map fresh';
       const caption = document.createElement('figcaption');
       const edge = item.map.radius < 10 ? item.map.radius.toFixed(1) : Math.round(item.map.radius);
-      const voices = item.map.rings?.length || item.map.stars.some((star) => star.signal);
-      caption.textContent = `edge at ${edge} ly · haze is gas, stronger is thicker · the hollow square is us${voices ? ' · green is somebody' : ''}`;
+      const parts = [`edge at ${edge} ly`, 'the grey haze is gas, heavier where it is thicker', 'the hollow square is us'];
+      if (item.map.inner) parts.push(`the dotted box is "${item.map.zoom === 'far' ? 'chart' : 'chart close'}"`);
+      if (item.map.held || item.map.stars.some((star) => star.signal)) parts.push('green is somebody');
+      caption.textContent = parts.join(' · ');
       el.append(picture, caption);
     } else {
       // No picture: fall back to the same map in characters.

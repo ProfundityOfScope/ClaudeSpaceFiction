@@ -176,8 +176,8 @@ export const CIV = {
   RUIN_ARCHIVE: { home: 24, outpost: 10 },
   /** Old ruins have less left in them. */
   RUIN_OLD: 0.6,
-  /** Chance that a ruin still holds something worth carrying away. */
-  RELIC: { home: 0.25, outpost: 0.06 },
+  /** Chance that a ruin still holds something worth carrying away. Kept low: the chart flags nearby ruins, so a navigator can hunt them. */
+  RELIC: { home: 0.12, outpost: 0.03 },
   /** Archive credit for meeting a living culture for the first time. */
   MEET_ARCHIVE: 8,
 } as const;

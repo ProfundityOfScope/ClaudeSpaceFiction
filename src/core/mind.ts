@@ -376,8 +376,8 @@ export const GUIDE = {
   working: 'Good. Nothing happens until you let the days run.',
   workingHint: '"stay" runs time until a crew finishes or something turns up. "stay 30" runs thirty days.',
   stayed: 'That is the rhythm of it: put the crews to work, let the days run, see what turns up. Stay as long as it pays.',
-  stayedHint: 'When you want to move on, "chart" shows the stars in reach.',
+  stayedHint: 'When you want to move on, "chart" shows what stands out among the stars in reach.',
   charted: 'Pick one and I will work out what it costs. A few months for us is a few years for everyone outside.',
-  chartedHint: '"plot 1" costs the trip to number 1. "scope 1" is what the telescope sees there. "gas" shows the wider sky.',
+  chartedHint: '"plot 1" costs the trip to number 1, and "scope 1" is what the telescope sees there. "chart close" lists the nearest stars; "chart far" shows the wider sky.',
   done: 'That is all of it. I will stop explaining now. Ask, if you want my view of anything.',
 } as const;

@@ -63,7 +63,7 @@ Two further items the owner named after play-test 1. They sit beside the slices;
 
 - **Onboarding.** `guide` in the save is the step of a first-visit walkthrough; the lines are `GUIDE` in `mind.ts` and the logic is `Game.guide`. It reacts to what has happened, so steps taken out of order are skipped, and it ends at the first arrival. Saves without the field are never walked through. Also: `map`/`system` for `look`, a fixed closing set of buttons (look, ops, chart, ship, ask), and "did you mean" on near misses.
 - **Burns.** Fuel is thrust squared times time under burn, so `burn eco` (a quarter thrust) costs roughly an eighth of the fuel for twice the time. `TRANSIT_WEAR` (1.5% hull per year under way) is the price of going slowly. The plot table now shows time for each burn and fuel, shield and hull on arrival.
-- **Gas.** `gas` draws the sky out to 100 ly (times optics) in five shades and lists the bright stars in range; `plot` works on its numbers. The chart has a one-character column for the gas on the way to each star.
+- **Gas.** The chart has a one-character column for the gas on the way to each star (`#` if a cloud lies anywhere across the line). The wide view of where the gas is has since become `chart far`; see Charts and map pictures.
 - **The Mind.** Comments only on the first unremarkable plot of a visit. Dissents change wording from the third, and go terse after four correct in a row (`streak`). Reckonings name the run. Refusals escalate (`refused`).
 - **Small.** Wind skimming doubled. A note when bigger tanks lower the fuel percentage. Below 40% hull the drive is throttled to 70%.
 
@@ -73,12 +73,18 @@ Not addressed here, on purpose: any incentive to move on (ship politics; ISRU fo
 
 Things to ask after the next play-test: is economy now worth choosing; is the hull cost of a slow burn noticeable; does the wide gas view make gas readable; did the walkthrough help or get in the way.
 
-### Map pictures (built, in its own pull request on top of onboarding)
+### Charts and map pictures
 
-- The owner asked for the smallest possible graphics for the star map: a static image, low-resolution and blocky, in the terminal's own look, and **not interactive yet**. Do not add tap-to-plot or anything else to it without asking.
-- How: `chart` and `gas` emit an output item of kind `map`. Its `s` is the character map (what a terminal and the bot see); its `map` is the data (`MapData` in `game.ts`): a 64 by 64 grid of gas levels and the stars inside it. `drawMap` in `src/web/main.ts` draws one cell per pixel in the page's colour tokens and CSS scales it up unsmoothed.
-- It is drawn once when printed. It does not redraw if the theme changes.
-- Resist drawing more (system diagrams, gauges) until asked: the prototype is for finding the fun in text.
+History: first a 64-cell picture for `chart` and a separate `gas` view at a different scale. The owner found that too chunky to be useful and hard to relate, and asked for one chart with zooms, finer cells, gas as grey gradients, and a culture's space as a contour round its systems. That is what is here now.
+
+- **Still static.** The owner asked for a static image in the terminal's own look, and **not interactive yet**. Do not add tap-to-plot or anything else to it without asking. Resist drawing more (system diagrams, gauges) until asked.
+- **Three zooms that nest**, each four times wider than the last (`ZOOM_STEP`). `chart close` is sized to hold the nearest nine stars, rounded up to a tidy figure. `chart` (the default, `mid` in the code) is what stands out within four times that. `chart far` (also `gas`) is sixteen times. `plot N` works on whichever list was shown last.
+- **Each zoom numbers what suits its scale.** Close: the nearest nine. Mid: voices, anything flagged for a deep scan, bright stars, then the nearest yellow and white stars outside the close box to fill up to nine. Far: bright stars and voices outside the mid box only, and the middle is left clear apart from voices. Numbering things that the next zoom in already covers is what piled labels onto the ship before.
+- **The picture**: `MapData` in `game.ts`, 96 cells a side. Gas is one base-36 character per cell, 36 shades evenly spaced in log density from 0.01 to 100. `inner` is the half-width of the next zoom in, drawn as a dotted box so the views can be related. `held` is a list of cells on the edge of space somebody holds.
+- **Held space** (`heldEdge`): for each spreading culture we know of (met, or home in earshot), every system with something of theirs living in it adds a Gaussian bump; the edge is where the sum crosses a half. Light-delayed like everything else.
+- **The page** (`drawMap` in `src/web/main.ts`) draws one cell per pixel in the colour tokens and CSS scales it up unsmoothed. It is drawn once when printed and does not redraw if the theme changes.
+- **A terminal** gets the same map in characters (`sketch`).
+- **Telescope limits show.** Dim stars are only resolved out to 10 ly times optics, so on the wider charts they form a disc in the middle. That is honest, and the optics refit pushes it out.
 
 ### ISRU improvements: thinking so far
 
@@ -130,7 +136,7 @@ How it works, for whoever picks this up:
 - **`Cultures` (in `civs.ts`)**: `presence(sys, year)` gives sites (home or outpost, living or ruined) and claims; `heard(sys, year, dist)` is what the light shows, so it asks about `year - dist`; `signals()` lists everything audible from a point; `byId` finds a culture again. All tunables are `CIV` in `config.ts`.
 - **In the game.** `takeNote('arrive' | 'sweep' | 'stay')` is the one place that reports on people: what became of those we knew, anyone new, and ruins once the system is swept. `meet`, `noticeRuin` and `finishRuin` do the rest. `scanTargets()` is the single list of things a deep scan can be pointed at (oddity hints and ruins). Crews take nothing from a living home world (`homes()`).
 - **Saved**: `state.met` (cultures known, by id), `mem.seen` (who was here and in what phase, for telling the difference), `mem.sites` (ruins read), `ship.relics` as objects (what, whose, kind, year). Save version 2; older saves are refused and the page starts a new voyage with a line saying why.
-- **Seeing them**: a line under the heading; `^` on a body in the system table; a `^` column on the chart for signals (the name column shrank to 14 to fit) and up to three heard systems added to the list; the wide map lists the five nearest voices after the bright stars and draws a ring for the space a spreading culture holds. The page draws all of that in `--ok` green.
+- **Seeing them**: a line under the heading; `^` on a body in the system table; a `^` column on the charts for signals (the name column shrank to 14 to fit); the edge of a spreading culture's space on the maps. The page draws all of that in `--ok` green. Unread ruins within planet-resolving range (10 ly times optics) carry the same `!` as oddities, and `scope` says which it is. That flag was Claude's suggestion after the owner asked where the nearest ruins were; they did not clearly ask for it, so check that they want it.
 - **Oddities**: the worked stone and the sea walls left the catalogue and are now ruins. The remaining made things are category `artefact`, all rarity 3, and carry `relic: { what, kind, chance }`.
 - **The start**: `findStart` now wants an empty system with somebody alive and somebody's ruins within the first chart. The default seed starts at Ember 99.
 - **Tools**: `npm run census` counts cultures, outposts and ruins in the starting cluster and the field. The bot counts who it meets; `--deaf` makes it ignore signals.
@@ -142,7 +148,7 @@ Numbers on the default seed (rerun the census after touching `CIV`):
 - From a field system the nearest living culture is about 21 ly off (median) and the nearest ruin about 16.
 - Spreading cultures: about 0.44 alive per coarse cell; they hold a median 12.5 ly, the largest near the start 55 ly.
 - Turnover of a culture alive now: 95% still there after 50 years, 82% after 200, 65% after 500, 38% after 1,000, 1% after 3,000.
-- The bot lands on somebody's home on about 45% of jumps when it follows signals, and 1 to 2% when it ignores them. Relics: 0 to 5 in 200 jumps.
+- The bot goes for everything the chart flags. It lands on somebody's home on a quarter to a third of jumps and on ruins on about 40%; ignoring signals (`--deaf`), 1% and 60%. Relics: 3 to 10 in 200 jumps, after halving the odds (`CIV.RELIC`) because flagged ruins can be hunted. A human will not chase every flag, so read these as upper limits.
 
 Known rough edges, deliberately left:
 

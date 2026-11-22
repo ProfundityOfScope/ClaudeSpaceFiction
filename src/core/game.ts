@@ -26,16 +26,25 @@ export interface Out {
   map?: MapData;
 }
 
+/** How far out a chart looks. Each zoom is the one before, four times wider. */
+export type Zoom = 'close' | 'mid' | 'far';
+
 /** A small square picture of the sky. */
 export interface MapData {
   /** Cells along each side, and light-years from the centre to each edge. */
   size: number;
   radius: number;
-  /** Gas in each cell, row by row from the top: a digit from 0 (void) to 4 (cloud). */
+  zoom: Zoom;
+  /**
+   * Gas in each cell, row by row from the top: one character per cell, from
+   * '0' (void) to 'z' (the thickest cloud), on a logarithmic scale.
+   */
   gas: string;
   stars: MapStar[];
-  /** The space some culture is known to hold: a circle, in cells. */
-  rings?: { x: number; y: number; r: number }[];
+  /** Cells on the edge of space somebody holds, as indices into the grid. */
+  held?: number[];
+  /** Half the width, in cells, of the next zoom in: drawn as a faint box, so the views can be related. */
+  inner?: number;
 }
 
 export interface MapStar {
@@ -54,7 +63,27 @@ export interface MapStar {
   signal?: boolean;
 }
 
-const MAP_SIZE = 64;
+const MAP_SIZE = 96;
+const ZOOM_STEP = 4;
+
+/** A star to put on a map: numbered if it is in the list underneath. */
+interface Pin {
+  seen: Seen;
+  n?: number;
+  odd?: boolean;
+  signal?: boolean;
+}
+
+/** Round a map's radius up to a figure that reads well in a caption. */
+function roundUp(ly: number): number {
+  return [2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 25, 32, 40, 50, 64, 80, 100].find((r) => r >= ly) ?? Math.ceil(ly / 50) * 50;
+}
+
+/** Gas density as one of 36 shades: a character from '0' to 'z', evenly spaced in the logarithm from 0.01 to 100 atoms per cm^3. */
+function gasShade(n: number): string {
+  const t = (Math.log10(Math.max(n, 1e-6)) + 2) / 4;
+  return Math.round(35 * Math.min(1, Math.max(0, t))).toString(36);
+}
 const TONE: Record<StarKind, MapStar['tone']> = {
   M: 'warm', K: 'warm', BD: 'warm', RG: 'warm', RSG: 'warm',
   G: 'gold', F: 'gold', SG: 'gold',
@@ -141,6 +170,7 @@ export class Game {
   private out: Out[] = [];
   /** The last command, so the suggestion chips can follow the conversation. */
   private lastVerb = '';
+  private lastZoom: Zoom = 'mid';
 
   constructor(state: State, cfg: GalaxyConfig = DEMO) {
     this.galaxy = new Galaxy({ ...cfg, seed: state.seed });
@@ -297,8 +327,8 @@ export class Game {
         this.assign(verb, arg); break;
       case 'recall': this.recall(arg); break;
       case 'stay': this.stay(arg); break;
-      case 'chart': this.chart(); break;
-      case 'gas': this.gas(); break;
+      case 'chart': this.chart(arg); break;
+      case 'gas': this.chart('far'); break;
       case 'scope': this.scope(arg); break;
       case 'plot': this.plot(arg); break;
       case 'burn': this.burn(arg); break;
@@ -379,7 +409,8 @@ export class Game {
     const s = this.state;
     if (!this.mem.swept) return ['sweep', 'chart', 'ship', 'ask', 'help'];
     if ((this.lastVerb === 'chart' || this.lastVerb === 'gas') && s.chart.length) {
-      return [...s.chart.slice(0, 5).map((_, i) => `plot ${i + 1}`), 'scope 1', this.lastVerb === 'gas' ? 'chart' : 'gas', 'look'];
+      const others = (['chart close', 'chart', 'chart far'] as const).filter((_, i) => i !== ['close', 'mid', 'far'].indexOf(this.lastZoom));
+      return [...s.chart.slice(0, 5).map((_, i) => `plot ${i + 1}`), 'scope 1', ...others, 'look'];
     }
     if ((this.lastVerb === 'plot' || this.lastVerb === 'scope') && s.plot) return ['burn', 'burn eco', 'chart', 'look'];
     const chips: string[] = [];
@@ -1119,11 +1150,11 @@ export class Game {
   // ---- the chart and travel ----------------------------------------------
 
   /**
-   * The numbers behind a map: gas in a square grid around the ship, and the
-   * stars that fall inside it. The page draws these; a terminal shows the
-   * character map instead.
+   * The numbers behind a map: gas in a square grid around the ship, the stars
+   * that fall inside it, and the edge of any space somebody holds. The page
+   * draws these; a terminal shows the character map instead.
    */
-  private picture(radius: number, stars: { seen: Seen; n?: number; odd?: boolean; signal?: boolean }[], held: { ref: SysRef; r: number }[] = []): MapData {
+  private picture(zoom: Zoom, radius: number, stars: Pin[]): MapData {
     const here = this.here.ref;
     const size = MAP_SIZE;
     let gas = '';
@@ -1131,7 +1162,7 @@ export class Game {
       for (let c = 0; c < size; c++) {
         const x = here.x + (((c + 0.5) / size) * 2 - 1) * radius;
         const y = here.y + (1 - ((r + 0.5) / size) * 2) * radius;
-        gas += gasLevel(this.galaxy.gas(x, y));
+        gas += gasShade(this.galaxy.gas(x, y));
       }
     }
     const placed: MapStar[] = [];
@@ -1150,104 +1181,79 @@ export class Game {
         signal: signal || undefined,
       });
     }
-    const rings = held.map(({ ref, r }) => ({
-      x: Math.floor((((ref.x - here.x) / radius + 1) / 2) * size),
-      y: Math.floor(((1 - (ref.y - here.y) / radius) / 2) * size),
-      r: Math.round((r / radius) * (size / 2)),
-    }));
-    return { size, radius, gas, stars: placed, rings: rings.length ? rings : undefined };
+    const held = this.heldEdge(radius);
+    return {
+      size,
+      radius,
+      zoom,
+      gas,
+      stars: placed,
+      held: held.length ? held : undefined,
+      inner: zoom === 'close' ? undefined : size / 2 / ZOOM_STEP,
+    };
   }
 
-  private chart() {
+  /**
+   * The edge of the space other people hold, as cells of a map `radius` ly
+   * across: a contour drawn round the systems each spreading culture has
+   * something living in. We only know this for cultures we have met, or whose
+   * home we can hear, and only as the light shows it.
+   */
+  private heldEdge(radius: number): number[] {
     const s = this.state;
     const here = this.here.ref;
-    const optics = level(s, 'optics');
-    const strata = this.galaxy.cfg.strata;
-    const seen = this.galaxy.near(here.x, here.y, optics).filter((x) => x.ref.id !== here.id);
-    if (!seen.length) {
-      this.text('Nothing in range of the telescopes. That should not happen inside the disc.');
-      return;
+    const size = MAP_SIZE;
+    const cell = (2 * radius) / size;
+    // Each held system counts for a few light-years around it; neighbours merge into one shape.
+    const spread = Math.max(4, 1.3 * cell);
+    const reachOut = radius * Math.SQRT2 + 3 * spread;
+    const known = new Set(Object.keys(s.met).filter((id) => id.startsWith('R')));
+    for (const { site } of this.cultures.signals(here.x, here.y, s.tGal, HEARING)) {
+      if (site.kind === 'home' && site.culture.reach) known.add(site.culture.id);
     }
-    const listed: Seen[] = seen.slice(0, 9);
-    const add = (x: Seen | undefined) => {
-      if (x && !listed.includes(x)) listed.push(x);
-    };
-    // Oddities can be made out from about twice as far as planets can.
-    const oddRange = 2 * strata[0].sight * optics;
-    seen.filter((x) => x.dist <= oddRange && this.unresolvedAnomaly(x.ref.id)).slice(0, 2).forEach(add);
-    // Anyone whose radio carries this far: what the light shows, which is as old as the distance.
-    const loud = new Set(seen.filter((x) => this.heard(x)));
-    [...loud].slice(0, 3).forEach(add);
-    // And a few bright stars to steer by.
-    seen.filter((x) => x.ref.stratum === 2 && !listed.includes(x)).slice(0, 2).forEach(add);
-    add(seen.find((x) => x.ref.stratum === 3 && !listed.includes(x)));
-    listed.sort((a, b) => a.dist - b.dist);
-    s.chart = listed.map((x) => x.ref.id);
-
-    // Map: the ship in the middle, numbered neighbours, gas as shading.
-    const radius = Math.max(2, listed[Math.min(8, listed.length - 1)].dist * 1.15);
-    const cols = 41;
-    const rows = 13;
-    const grid: string[][] = [];
-    for (let r = 0; r < rows; r++) {
-      const row: string[] = [];
-      for (let c = 0; c < cols; c++) {
-        const n = this.galaxy.gas(here.x + ((c - 20) / 20) * radius, here.y + ((6 - r) / 6) * radius);
-        row.push(n >= 10 ? '%' : n >= 1.2 ? ':' : ' ');
+    if (!known.size) return [];
+    const points = new Map<string, { x: number; y: number }[]>();
+    for (const { ref, dist } of this.galaxy.within(here.x, here.y, reachOut)) {
+      for (const site of this.cultures.presence(this.systemAt(ref), s.tGal - dist).sites) {
+        if (!site.alive || !known.has(site.culture.id)) continue;
+        const list = points.get(site.culture.id) ?? [];
+        // In cells, from the top left.
+        list.push({ x: ((ref.x - here.x) / radius + 1) * (size / 2), y: (1 - (ref.y - here.y) / radius) * (size / 2) });
+        points.set(site.culture.id, list);
       }
-      grid.push(row);
     }
-    const put = (x: Seen, ch: string) => {
-      const c = 20 + Math.round(((x.ref.x - here.x) / radius) * 20);
-      const r = 6 - Math.round(((x.ref.y - here.y) / radius) * 6);
-      if (r >= 0 && r < rows && c >= 0 && c < cols && (ch !== '.' || ' :%'.includes(grid[r][c]))) grid[r][c] = ch;
-    };
-    for (const x of seen) if (x.dist <= radius * 1.2 && !listed.includes(x)) put(x, '.');
-    listed.forEach((x, i) => i < 9 && put(x, String(i + 1)));
-    grid[6][20] = '@';
-
-    const drawn = seen
-      .filter((x) => !listed.includes(x))
-      .map((x): { seen: Seen; n?: number; odd?: boolean; signal?: boolean } => ({ seen: x, signal: loud.has(x) }))
-      .concat(listed.map((x, i) => ({ seen: x, n: i + 1, odd: x.dist <= oddRange && this.unresolvedAnomaly(x.ref.id), signal: loud.has(x) })));
-    this.out.push({
-      k: 'map',
-      s: [...grid.map((row) => row.join('').trimEnd()), `map: @ us, : dense gas, % cloud, edge at ${ly(radius)} ly`].join('\n'),
-      map: this.picture(radius, drawn),
-    });
-    const lines = [' #  system           ly g star  sees'];
-    const nearRange = strata[0].sight * optics;
-    listed.forEach((x, i) => {
-      const sys = this.system(x.ref.id);
-      const visited = this.state.mem[x.ref.id];
-      let sees = '?';
-      if (visited?.swept || x.dist <= nearRange) sees = `${'O'.repeat(Math.min(3, sys.giants)) || '-'} ${'~'.repeat(sys.dust) || '-'}`;
-      const marks = `${x.dist <= oddRange && this.unresolvedAnomaly(x.ref.id) ? '!' : ' '}${loud.has(x) ? '^' : ' '}`;
-      // One character for the gas on the way there, in the map's own shading.
-      const way = shade(planLeg(this.galaxy, here, x.ref, this.drive, 1).gasMean).replace(' ', '_');
-      lines.push(
-        `${lpad(String(i + 1), 2)}${visited ? '*' : ' '} ${pad(this.nameOf(x.ref.id), 14)}${lpad(ly(x.dist), 5)} ${way} ${pad(STARS[sys.star].code, 5)} ${pad(sees, 7)} ${marks}`.trimEnd(),
-      );
-    });
-    this.pre(lines);
-    this.dim('g: gas on the way (_ void, . thin, : moderate, % dense, # cloud)');
-    this.dim('sees: O giants, ~ belts and comets, ! oddity, ^ a signal, * been there');
-    const first = listed.findIndex((x) => loud.has(x));
-    if (first >= 0) this.sayOnce('signal_first', 'signal_first', { n: first + 1, light: spanWords(listed[first].dist) });
-
-    const fancy = listed.findIndex((x) => this.system(x.ref.id).star === s.mind.fancy && !s.mem[x.ref.id]);
-    if (fancy >= 0 && !s.mind.said.includes(`fancy:${listed[fancy].ref.id}`)) {
-      s.mind.said.push(`fancy:${listed[fancy].ref.id}`);
-      this.say('fancy_seen', { kind: STARS[s.mind.fancy].name, dist: `${ly(listed[fancy].dist)} light-years`, n: fancy + 1 });
+    const edge = new Set<number>();
+    const k = spread / cell;
+    const far = 3 * k;
+    for (const list of points.values()) {
+      // Inside wherever the summed influence of their systems is high enough. One padded cell all round, so shapes that run off the map are not closed at its edge.
+      const inside = new Uint8Array((size + 2) * (size + 2));
+      for (let r = -1; r <= size; r++) {
+        for (let c = -1; c <= size; c++) {
+          let sum = 0;
+          for (const p of list) {
+            const dx = c + 0.5 - p.x;
+            const dy = r + 0.5 - p.y;
+            if (Math.abs(dx) > far || Math.abs(dy) > far) continue;
+            sum += Math.exp(-(dx * dx + dy * dy) / (k * k));
+            if (sum >= 0.5) break;
+          }
+          if (sum >= 0.5) inside[(r + 1) * (size + 2) + c + 1] = 1;
+        }
+      }
+      const at = (r: number, c: number) => inside[(r + 1) * (size + 2) + c + 1];
+      for (let r = 0; r < size; r++) {
+        for (let c = 0; c < size; c++) {
+          if (at(r, c) && !(at(r - 1, c) && at(r + 1, c) && at(r, c - 1) && at(r, c + 1))) edge.add(r * size + c);
+        }
+      }
     }
+    return [...edge].sort((a, b) => a - b);
   }
 
-  /** The wider sky: where the gas is thick and thin, and the bright stars to steer by. */
-  private gas() {
-    const s = this.state;
+  /** The same map in characters, for a terminal: 41 columns by 13 rows. */
+  private sketch(zoom: Zoom, radius: number, stars: Pin[]): string {
     const here = this.here.ref;
-    const optics = level(s, 'optics');
-    const radius = 100 * optics;
     const cols = 41;
     const rows = 13;
     const grid: string[][] = [];
@@ -1256,70 +1262,137 @@ export class Game {
       for (let c = 0; c < cols; c++) {
         // A character is much taller than it is wide, so look at three points down it and keep the thickest.
         let n = 0;
-        for (const dr of [-0.33, 0, 0.33]) {
-          n = Math.max(n, this.galaxy.gas(here.x + ((c - 20) / 20) * radius, here.y + ((6 - r + dr) / 6) * radius));
-        }
-        row.push(shade(n));
+        for (const dr of [-0.33, 0, 0.33]) n = Math.max(n, this.galaxy.gas(here.x + ((c - 20) / 20) * radius, here.y + ((6 - r + dr) / 6) * radius));
+        // Up close, thin gas is left blank so that a dot can mean a star.
+        row.push(zoom === 'far' ? shade(n) : n >= 10 ? '%' : n >= 1.2 ? ':' : ' ');
       }
       grid.push(row);
     }
-    const bright = this.galaxy
-      .near(here.x, here.y, optics)
-      .filter((x) => x.ref.id !== here.id && x.ref.stratum >= 2 && x.dist <= radius)
-      .slice(0, 9);
-    // Radio carries further than a dim star can be seen, so the wide view is where other people show up.
-    const signals = this.cultures.signals(here.x, here.y, s.tGal, Math.min(radius, HEARING));
-    const loud = new Set(signals.map((x) => x.seen.ref.id));
-    const voices = signals.filter((x) => !bright.some((b) => b.ref.id === x.seen.ref.id)).slice(0, 5).map((x) => x.seen);
-    const listed = [...bright, ...voices];
-    listed.forEach((x, i) => {
-      const c = 20 + Math.round(((x.ref.x - here.x) / radius) * 20);
-      const r = 6 - Math.round(((x.ref.y - here.y) / radius) * 6);
-      if (r >= 0 && r < rows && c >= 0 && c < cols) grid[r][c] = i < bright.length ? String(i + 1) : '^';
-    });
+    const put = (seen: Seen, ch: string) => {
+      const c = 20 + Math.round(((seen.ref.x - here.x) / radius) * 20);
+      const r = 6 - Math.round(((seen.ref.y - here.y) / radius) * 6);
+      if (r >= 0 && r < rows && c >= 0 && c < cols && (ch !== '.' || ' :%'.includes(grid[r][c]))) grid[r][c] = ch;
+    };
+    for (const pin of stars) if (!pin.n && (pin.signal || zoom === 'close')) put(pin.seen, pin.signal ? '^' : '.');
+    for (const pin of stars) if (pin.n) put(pin.seen, pin.n <= 9 ? String(pin.n) : '*');
     grid[6][20] = '@';
-    // The space a spreading culture holds, as far as its own broadcasts give it away.
-    const held = signals
-      .filter((x) => x.site.kind === 'home' && x.site.culture.reach)
-      .map((x) => ({ ref: x.seen.ref, r: frontier(x.site.culture, s.tGal - x.seen.dist) }))
-      .filter((x) => x.r >= 2);
-    this.out.push({
-      k: 'map',
-      s: [
-        ...grid.map((row) => row.join('').trimEnd()),
-        `gas: blank void, . thin, : moderate, % dense, # cloud · @ us · edge at ${ly(radius)} ly`,
-      ].join('\n'),
-      map: this.picture(
-        radius,
-        // The voices are nearly always close in, where numbers would pile up on the ship: they get a mark, and the list has the rest.
-        [
-          ...signals.filter((x) => !bright.some((b) => b.ref.id === x.seen.ref.id)).map((x) => ({ seen: x.seen, signal: true })),
-          ...bright.map((x, i) => ({ seen: x, n: i + 1, signal: loud.has(x.ref.id) })),
-        ],
-        held,
-      ),
-    });
-    const lines: string[] = [];
+    const key = zoom === 'far' ? 'gas: blank void, . thin, : moderate, % dense, # cloud' : 'map: : dense gas, % cloud';
+    return [...grid.map((row) => row.join('').trimEnd()), `${key} · @ us · edge at ${ly(radius)} ly`].join('\n');
+  }
+
+  /**
+   * The sky around the ship, at one of three zooms that nest inside each
+   * other: `close` is the nearest stars, the plain chart is what stands out in
+   * a view four times wider, and `far` is the bright stars to steer by in a
+   * view four times wider again. Each lists what it numbers, and "plot" works
+   * on whichever list was shown last.
+   */
+  private chart(arg: string) {
+    const s = this.state;
+    const here = this.here.ref;
+    const word = arg.trim().toLowerCase();
+    const zoom: Zoom | null =
+      word === '' ? 'mid' : /^(c|close|near|in)$/.test(word) ? 'close' : /^(f|far|wide|out)$/.test(word) ? 'far' : /^(m|mid)$/.test(word) ? 'mid' : null;
+    if (!zoom) {
+      this.text('Which chart? "chart close" for the nearest stars, "chart" for what stands out nearby, "chart far" for the wider sky.');
+      return;
+    }
+    const optics = level(s, 'optics');
+    const strata = this.galaxy.cfg.strata;
+    const seen = this.galaxy.near(here.x, here.y, optics).filter((x) => x.ref.id !== here.id);
+    if (!seen.length) {
+      this.text('Nothing in range of the telescopes. That should not happen inside the disc.');
+      return;
+    }
+    // The close view is sized to hold the nearest nine; the others are that, four and sixteen times over.
+    const base = roundUp(1.15 * seen[Math.min(8, seen.length - 1)].dist);
+    const radius = base * (zoom === 'close' ? 1 : zoom === 'mid' ? ZOOM_STEP : ZOOM_STEP * ZOOM_STEP);
+    const inner = zoom === 'far' ? base * ZOOM_STEP : base;
+    const within = (x: Seen, half: number) => Math.abs(x.ref.x - here.x) < half && Math.abs(x.ref.y - here.y) < half;
+    const inView = (x: Seen) => within(x, radius);
+    // Outside the dotted box, that is: not already the business of the next zoom in.
+    const beyond = (x: Seen) => inView(x) && !within(x, inner);
+    const nearRange = strata[0].sight * optics;
+    // Oddities can be made out from about twice as far as planets can; ruins only from as far as planets.
+    const oddRange = 2 * nearRange;
+    const flagged = (x: Seen) => (x.dist <= oddRange && this.unresolvedAnomaly(x.ref.id)) || this.ruinsSeen(x, nearRange);
+    // Radio carries further than a dim star can be seen, so some voices come from stars the telescopes cannot pick out.
+    const voices = this.cultures.signals(here.x, here.y, s.tGal, HEARING).map((v) => v.seen);
+    const loud = new Set(voices.map((v) => v.ref.id));
+    const known = [...seen, ...voices.filter((v) => !seen.some((x) => x.ref.id === v.ref.id))].sort((a, b) => a.dist - b.dist);
+
+    const listed: Seen[] = [];
+    const add = (x: Seen | undefined) => {
+      if (x && !listed.some((y) => y.ref.id === x.ref.id)) listed.push(x);
+    };
+    if (zoom === 'close') {
+      seen.slice(0, 9).forEach(add);
+    } else if (zoom === 'mid') {
+      // What stands out: voices, things worth a deep scan, bright stars. Then the nearest yellow and white stars, to fill the list.
+      known.filter((x) => inView(x) && (loud.has(x.ref.id) || flagged(x) || x.ref.stratum >= 2)).slice(0, 12).forEach(add);
+      const fresh = seen.filter((x) => beyond(x) && !s.mem[x.ref.id]);
+      for (const x of fresh.filter((y) => y.ref.stratum === 1)) if (listed.length < 9) add(x);
+      for (const x of fresh) if (listed.length < 9) add(x);
+    } else {
+      // Only what lies outside the plain chart is numbered: nearer things are its business, and would pile up on the ship.
+      seen.filter((x) => beyond(x) && x.ref.stratum >= 2).slice(0, 9).forEach(add);
+      known.filter((x) => beyond(x) && loud.has(x.ref.id)).slice(0, 3).forEach(add);
+      // One of the rare giants or remnants, however far, to steer by.
+      add(seen.find((x) => x.ref.stratum === 3 && !within(x, inner)));
+      for (const x of seen.filter((y) => beyond(y) && y.ref.stratum === 1)) if (listed.length < 9) add(x);
+    }
+    listed.sort((a, b) => a.dist - b.dist);
+    s.chart = listed.map((x) => x.ref.id);
+    this.lastZoom = zoom;
+
+    // On the far chart the middle is left clear, apart from voices: the plain chart shows what is in there.
+    const pins: Pin[] = known
+      .filter((x) => !listed.includes(x) && (zoom !== 'far' || !within(x, inner) || loud.has(x.ref.id)))
+      .map((x): Pin => ({ seen: x, signal: loud.has(x.ref.id), odd: zoom !== 'far' && flagged(x) }))
+      .concat(listed.map((x, i) => ({ seen: x, n: i + 1, signal: loud.has(x.ref.id), odd: flagged(x) })));
+    this.out.push({ k: 'map', s: this.sketch(zoom, radius, pins), map: this.picture(zoom, radius, pins) });
+
     if (listed.length) {
-      s.chart = listed.map((x) => x.ref.id);
-      lines.push(' #  system           ly star  way');
+      const lines = [' #  system           ly g star  sees'];
       listed.forEach((x, i) => {
         const sys = this.system(x.ref.id);
+        const visited = s.mem[x.ref.id];
+        let sees = '?';
+        if (visited?.swept || x.dist <= nearRange) sees = `${'O'.repeat(Math.min(3, sys.giants)) || '-'} ${'~'.repeat(sys.dust) || '-'}`;
+        const marks = `${flagged(x) ? '!' : ' '}${loud.has(x.ref.id) ? '^' : ' '}`;
+        // One character for the gas on the way there, in the map's own shading. A cloud anywhere on the line counts.
         const leg = planLeg(this.galaxy, here, x.ref, this.drive, 1);
-        const way = `${Galaxy.gasWord(leg.gasMean)}${leg.gasMax >= 10 && leg.gasMean < 10 ? ' #' : ''}`;
+        const way = leg.gasMax >= 10 ? '#' : shade(leg.gasMean).replace(' ', '_');
         lines.push(
-          `${lpad(String(i + 1), 2)}${s.mem[x.ref.id] ? '*' : ' '} ${pad(this.nameOf(x.ref.id), 14)}${lpad(ly(x.dist), 5)} ${pad(STARS[sys.star].code, 5)} ${pad(way, 10)} ${loud.has(x.ref.id) ? '^' : ''}`.trimEnd(),
+          `${lpad(String(i + 1), 2)}${visited ? '*' : ' '} ${pad(this.nameOf(x.ref.id), 14)}${lpad(ly(x.dist), 5)} ${way} ${pad(STARS[sys.star].code, 5)} ${pad(sees, 7)} ${marks}`.trimEnd(),
         );
       });
+      this.pre(lines);
+      this.dim('g: gas on the way (_ void, . thin, : moderate, % dense, # a cloud across it)');
+      this.dim('sees: O giants, ~ belts and comets · ! worth a deep scan · ^ a signal · * been there');
     }
-    if (lines.length) this.pre(lines);
-    const notes = ['Thin gas is fast going; a cloud is a wall (# marks one across the way).'];
-    notes.push(bright.length ? 'These are the bright stars in range.' : `No bright stars within ${ly(radius)} light-years.`);
-    if (voices.length || loud.size) notes.push('^ marks a signal: somebody was broadcasting when that light left.');
-    if (listed.length) notes.push('"plot" works on these numbers.');
-    this.dim(notes.join(' '));
-    const first = listed.findIndex((x) => loud.has(x.ref.id));
-    if (first >= 0) this.sayOnce('signal_first', 'signal_first', { n: first + 1, light: spanWords(listed[first].dist) });
+    this.dim(
+      zoom === 'close'
+        ? `The nearest stars${listed.length ? '' : ': none in range'}. "chart" and "chart far" look further out.`
+        : zoom === 'mid'
+          ? `What stands out within ${ly(radius)} light-years${listed.length ? '' : ': nothing'}. "chart close" lists the nearest stars; "chart far" shows the wider sky.`
+          : `The bright stars to steer by${listed.length ? '' : `: none within ${ly(radius)} light-years`}. "chart" and "chart close" look nearer.`,
+    );
+
+    const voice = listed.findIndex((x) => loud.has(x.ref.id));
+    if (voice >= 0) this.sayOnce('signal_first', 'signal_first', { n: voice + 1, light: spanWords(listed[voice].dist) });
+    const fancy = listed.findIndex((x) => this.system(x.ref.id).star === s.mind.fancy && !s.mem[x.ref.id]);
+    if (fancy >= 0 && !s.mind.said.includes(`fancy:${listed[fancy].ref.id}`)) {
+      s.mind.said.push(`fancy:${listed[fancy].ref.id}`);
+      this.say('fancy_seen', { kind: STARS[s.mind.fancy].name, dist: `${ly(listed[fancy].dist)} light-years`, n: fancy + 1 });
+    }
+  }
+
+  /** Ruins nobody has read, at a system close enough for the telescopes to pick them out. */
+  private ruinsSeen(x: Seen, range: number): boolean {
+    if (x.dist > range) return false;
+    const read = this.state.mem[x.ref.id]?.sites ?? [];
+    return this.cultures.presence(this.systemAt(x.ref), this.state.tGal).sites.some((site) => !site.alive && !read.includes(site.culture.id));
   }
 
   /** A system with something odd in it that we have not yet resolved. */
@@ -1364,6 +1437,9 @@ export class Game {
     }
     if (dist <= 2 * strata[0].sight * optics && this.unresolvedAnomaly(sys.ref.id)) {
       parts.push("And something in its light that I can't account for from here.");
+    }
+    if (this.ruinsSeen({ ref: sys.ref, dist }, strata[0].sight * optics)) {
+      parts.push('There are straight lines on one of its worlds, where geology makes none. Somebody built there, and is not there now.');
     }
     const voice = this.heard({ ref: sys.ref, dist });
     if (voice) {
@@ -1768,8 +1844,9 @@ export class Game {
       '  recall N    free a crew',
       '  stay [30]   let days pass (d w m y)',
       ' away',
-      '  chart       neighbouring systems',
-      '  gas         the wider sky, with its gas',
+      '  chart       what stands out nearby',
+      '  chart close the nearest stars',
+      '  chart far   the wider sky',
       '  scope N     what the telescope sees',
       '  plot N      what going there costs',
       '  burn        go, at full thrust',

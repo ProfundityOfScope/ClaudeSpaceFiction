@@ -22,14 +22,14 @@ node tools/play.ts sweep ops  # run some commands and exit
 
 - **The loop.** `sweep` a system, assign crews (`scoop` fuel from giants, cut `ice` for the forward shield, `mine` materials, `survey`, deep `scan` oddities, `repair`), let days pass with `stay`, then `chart`, `plot` and `burn`.
 - **Two clocks.** Every trip costs time aboard and more time outside.
-- **Gas sets the speed.** In gas of density n the ship cruises at gamma = sqrt(1 + P / n), where P grows with engine thrust and hull grade. Thin gas is fast; clouds are walls for a young ship. `gas` shows the wider sky.
+- **Gas sets the speed.** In gas of density n the ship cruises at gamma = sqrt(1 + P / n), where P grows with engine thrust and hull grade. Thin gas is fast; clouds are walls for a young ship. `chart far` shows where it lies.
 - **Two ways to burn.** `burn` goes at full thrust. `burn eco` goes at a quarter: fuel use goes as thrust squared, so it is far cheaper, but it takes about twice as long and time under way wears the hull.
 - **A guided first visit.** On a new voyage the Mind explains each step once, then stops.
-- **Small maps.** In the browser, `chart` and `gas` draw a blocky little picture of the sky. A terminal shows the same map in characters.
+- **Charts at three zooms.** `chart close` is the nearest stars. `chart` is what stands out in a view four times wider: signals, things worth a deep scan, bright stars. `chart far` is the bright stars to steer by, four times wider again. `plot` works on whichever was shown last. In the browser each draws a small blocky map: gas as a grey haze, a dotted box for the next zoom in, and a green edge round the systems a culture holds. A terminal shows the same map in characters.
 - **Refits.** Knowledge in the Archive unlocks them; materials and crew time pay for them.
 - **The Mind.** A written voice with its own tastes, a dissent it logs and later checks, and a habit of noticing how you leave places.
-- **Other people.** About one system in a hundred is somebody's home, more in the old cluster where the voyage starts. None of them are human. Each culture is born, rises, declines and ends; a few spread to hold the stars around them for a while. Their radio shows as `^` on the chart and the wide map, as old as the light that carries it. Come back after a long haul and they may have changed, or be gone.
-- **Ruins and relics.** A culture that has ended leaves ruins for a few thousand years, and then nothing. A sweep picks them out; a deep scan says whose they were, and now and then brings something back for the hold.
+- **Other people.** About one system in a hundred is somebody's home, more in the old cluster where the voyage starts. None of them are human. Each culture is born, rises, declines and ends; a few spread to hold the stars around them for a while. Their radio shows as `^` on the charts, as old as the light that carries it. Come back after a long haul and they may have changed, or be gone.
+- **Ruins and relics.** A culture that has ended leaves ruins for a few thousand years, and then nothing. The chart flags unread ruins close by, a sweep picks them out, and a deep scan says whose they were and now and then brings something back for the hold.
 
 Not here yet: dealing with the people you meet (terms, tolls, trade, and what happens when you ignore them), other ships and their invitations, the permanent waypoint systems, marks the navigator leaves behind, and transients.
 

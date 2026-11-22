@@ -90,9 +90,9 @@ test('surveying finds everything, and work fills what it should', () => {
 
 test('fixed-width blocks fit a phone', () => {
   const g = Game.fresh();
-  const commands = ['sweep', 'ops', 'survey', 'stay 60', 'look', 'chart', 'plot 1', 'plot 9', 'gas', 'plot 1', 'ship', 'refits', 'log', 'finds', 'help', 'burn', 'sweep', 'chart'];
-  // Then on through a few more systems, so inhabited ones and ruins are covered too.
-  for (let hop = 0; hop < 6; hop++) commands.push('gas', `plot ${10 + (hop % 3)}`, 'burn', 'sweep', 'look', 'ops', 'chart', 'finds', 'ship');
+  const commands = ['sweep', 'ops', 'survey', 'stay 60', 'look', 'chart close', 'plot 1', 'plot 9', 'chart far', 'plot 1', 'ship', 'refits', 'log', 'finds', 'help', 'chart', 'chart sideways'];
+  // Then on through a few systems the chart picks out, so inhabited ones and ruins are covered too.
+  for (let hop = 0; hop < 6; hop++) commands.push('chart', `plot ${1 + (hop % 3)}`, 'burn', 'sweep', 'look', 'ops', 'chart close', 'chart far', 'gas', 'finds', 'ship');
   for (const c of commands) {
     for (const out of g.exec(c)) {
       if (out.k !== 'pre') continue;
@@ -149,29 +149,71 @@ test('the Mind words a repeated objection differently, and remembers how they tu
   for (let i = 0; i < 6; i++) {
     g.state.ship.hull = 90;
     g.state.ship.fuel = 6;
+    // Take the farthest thing on the chart that the tanks allow: far enough, with no shield, to cost hull.
     g.exec('chart');
-    g.exec('gas');
-    for (const o of [...g.exec('plot 1'), ...g.exec('burn')]) if (o.k === 'mind') heard.add(o.s);
+    for (let n = g.state.chart.length; n >= 1; n--) {
+      const from = g.state.at;
+      for (const o of [...g.exec(`plot ${n}`), ...g.exec('burn')]) if (o.k === 'mind') heard.add(o.s);
+      if (g.state.at !== from) break;
+    }
   }
   assert.ok(g.state.mind.overruled >= 3, 'six burns with no shield draw several dissents');
   assert.ok(Math.abs(g.state.mind.streak ?? 0) >= 2, 'and it keeps a running tally of the outcomes');
   assert.ok([...heard].some((line) => /Dissent number|for the record|same as the last|with the others|Number \d/.test(line)));
 });
 
-test('chart and gas carry a map for the page to draw, and the same map in characters', () => {
+test('every chart carries a map for the page to draw, and the same map in characters', () => {
   const g = Game.fresh();
   g.exec('sweep');
-  for (const command of ['chart', 'gas']) {
+  for (const command of ['chart close', 'chart', 'chart far', 'gas']) {
     const item = g.exec(command).find((o) => o.k === 'map');
     assert.ok(item?.map, `${command} emits a map`);
-    const { size, gas, stars, radius } = item.map;
+    const { size, gas, stars, radius, held, inner } = item.map;
     assert.ok(radius > 0);
     assert.equal(gas.length, size * size);
-    assert.match(gas, /^[0-4]+$/);
+    assert.match(gas, /^[0-9a-z]+$/, 'gas is one of 36 shades in every cell');
     for (const star of stars) assert.ok(star.x >= 0 && star.x < size && star.y >= 0 && star.y < size);
     const numbers = stars.filter((star) => star.n).map((star) => star.n);
     assert.ok(numbers.length > 0, 'some stars are numbered');
     assert.equal(new Set(numbers).size, numbers.length, 'and no number is used twice');
+    for (const i of held ?? []) assert.ok(Number.isInteger(i) && i >= 0 && i < size * size);
+    assert.equal(inner, command === 'chart close' ? undefined : size / 8, 'wider charts box the next one in');
     assert.ok(item.s.includes('@'), 'the character map is still there for a terminal');
   }
+});
+
+test('the three charts nest, and each lists what suits its scale', () => {
+  const g = Game.fresh();
+  g.exec('sweep');
+  const view = (command: string) => {
+    const out = g.exec(command);
+    const rows = (out.find((o) => o.k === 'pre')?.s ?? '').split('\n').slice(1);
+    return { map: out.find((o) => o.k === 'map')!.map!, ids: [...g.state.chart], dists: rows.map((r) => parseFloat(r.slice(18, 23))) };
+  };
+  const close = view('chart close');
+  const mid = view('chart');
+  const far = view('gas');
+  assert.equal(mid.map.radius, 4 * close.map.radius);
+  assert.equal(far.map.radius, 16 * close.map.radius);
+  assert.deepEqual([close.map.zoom, mid.map.zoom, far.map.zoom], ['close', 'mid', 'far']);
+  // Close: simply the nearest nine.
+  const nearest = galaxy.near(start.x, start.y).filter((x) => x.dist > 0).slice(0, 9).map((x) => x.ref.id);
+  assert.deepEqual(close.ids, nearest);
+  for (const v of [close, mid, far]) {
+    assert.ok(v.ids.length > 0 && v.ids.length <= 13);
+    assert.deepEqual(v.dists, [...v.dists].sort((a, b) => a - b), 'nearest first');
+  }
+  // Far: nothing numbered inside the plain chart's frame.
+  for (const id of far.ids) {
+    const ref = galaxy.ref(id)!;
+    assert.ok(Math.max(Math.abs(ref.x - start.x), Math.abs(ref.y - start.y)) >= mid.map.radius, `${id} lies outside the plain chart`);
+  }
+  // "plot" works on whichever list was shown last.
+  g.exec('chart close');
+  g.exec('plot 1');
+  assert.equal(g.state.plot, close.ids[0]);
+  g.exec('chart');
+  g.exec('plot 1');
+  assert.equal(g.state.plot, mid.ids[0]);
+  assert.match(g.exec('chart sideways').map((o) => o.s).join(' '), /Which chart\?/);
 });
