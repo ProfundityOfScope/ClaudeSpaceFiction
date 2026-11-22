@@ -181,6 +181,7 @@ Notes for step 2: terms attach where `meet` and `homes()` are. The emergency exi
 
 - `npm run check`, `npm test`, `npm run build`, `npm run bot`. Node runs `.ts` directly.
 - **Build before committing page changes.** Pages serves `docs/index.html`, which is generated.
+- The page's text size is one line, `font-size: clamp(11px, 3.1vw, 14px)` on `body` in `src/web/page.html`: smallest, how it scales with screen width, largest. The owner asked for it a little smaller than first set (it was 12.5 to 15). The command box stays at 16px so phones do not zoom in when it is tapped.
 - Publish a dev build by republishing `dist/artifact.html` to the dev Artifact.
 - One branch per piece of work, a pull request to `main`, and the owner merges. Squash when the branch history is messy, merge commit when it is clean. After a squash, start the next branch from `main`.
 - **These sessions cannot push tags** (403). The owner creates them from GitHub's release page. Next is `v0.2.0`.
