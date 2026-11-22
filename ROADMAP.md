@@ -61,6 +61,7 @@ Two further items the owner named after play-test 1. They sit beside the slices;
 
 ### Onboarding and tuning (built, awaiting the owner's play-test)
 
+- **Views.** `look` is the system table plus what each crew is doing, with `c1` under the body crew 1 is working. `ops` is the work on offer. `ship` includes the refit table; `refits` is another word for it. These merges came out of the phone concept, where three panes covered what five commands did.
 - **Onboarding.** `guide` in the save is the step of a first-visit walkthrough; the lines are `GUIDE` in `mind.ts` and the logic is `Game.guide`. It reacts to what has happened, so steps taken out of order are skipped, and it ends at the first arrival. Saves without the field are never walked through. Also: `map`/`system` for `look`, a fixed closing set of buttons (look, ops, chart, ship, ask), and "did you mean" on near misses.
 - **Burns.** Fuel is thrust squared times time under burn, so `burn eco` (a quarter thrust) costs roughly an eighth of the fuel for twice the time. `TRANSIT_WEAR` (1.5% hull per year under way) is the price of going slowly. The plot table now shows time for each burn and fuel, shield and hull on arrival.
 - **Gas.** The chart has a one-character column for the gas on the way to each star (`#` if a cloud lies anywhere across the line). The wide view of where the gas is has since become `chart far`; see Charts and map pictures.
@@ -73,18 +74,15 @@ Not addressed here, on purpose: any incentive to move on (ship politics; ISRU fo
 
 Things to ask after the next play-test: is economy now worth choosing; is the hull cost of a slow burn noticeable; does the wide gas view make gas readable; did the walkthrough help or get in the way.
 
-### Charts and map pictures
+### Charts
 
-History: first a 64-cell picture for `chart` and a separate `gas` view at a different scale. The owner found that too chunky to be useful and hard to relate, and asked for one chart with zooms, finer cells, gas as grey gradients, and a culture's space as a contour round its systems. That is what is here now.
+History, because it explains the shape of the code. First a 64-cell picture for `chart` and a separate `gas` view. The owner found that too chunky and hard to relate, so it became one chart with three zooms and a finer picture with a tinted hull for a culture's space. Then the concept art for a phone app (see Media) made it plain that the map's real home is a full screen moved by hand, and that polishing a static picture in the log was time not spent on the game. So **the page shows the character map again**, and what the picture taught went into words.
 
-- **Still static.** The owner asked for a static image in the terminal's own look, and **not interactive yet**. Do not add tap-to-plot or anything else to it without asking. Resist drawing more (system diagrams, gauges) until asked.
-- **Three zooms that nest**, each four times wider than the last (`ZOOM_STEP`). `chart close` is sized to hold the nearest nine stars, rounded up to a tidy figure. `chart` (the default, `mid` in the code) is what stands out within four times that. `chart far` (also `gas`) is sixteen times. `plot N` works on whichever list was shown last.
-- **Each zoom numbers what suits its scale.** Close: the nearest nine. Mid: voices, anything flagged for a deep scan, bright stars, then the nearest yellow and white stars outside the close box to fill up to nine. Far: bright stars and voices outside the mid box only, and the middle is left clear apart from voices. Numbering things that the next zoom in already covers is what piled labels onto the ship before.
-- **The picture**: `MapData` in `game.ts`, 96 cells a side. Gas is one base-36 character per cell, 36 shades evenly spaced in log density from 0.01 to 100. `inner` is the half-width of the next zoom in, drawn as a dotted box so the views can be related. `held` is the space somebody holds, one character per cell like `gas`: 0 outside, 1 inside, 2 on the edge.
-- **Held space** (`heldSpace`, geometry in `hull.ts`): for each spreading culture we know of (met, or home in earshot), the convex hull of every system it has something living in, with a margin of a light-year and a half, drawn as an edge with a faint tint inside. Light-delayed like everything else. The owner chose this from six mock-ups (merged blobs, hull, tinted hull, loose envelope, circle round home, lanes between systems): the hull is clean at every zoom, and the tint is what tells you that you are inside when the edge is off the map. Its one fault is that it claims the gaps between their systems, so neighbours can overlap on the map without sharing a star.
-- **The page** (`drawMap` in `src/web/main.ts`) draws one cell per pixel in the colour tokens and CSS scales it up unsmoothed. It is drawn once when printed and does not redraw if the theme changes.
-- **A terminal** gets the same map in characters (`sketch`).
-- **Telescope limits show.** Dim stars are only resolved out to 10 ly times optics, so on the wider charts they form a disc in the middle. That is honest, and the optics refit pushes it out.
+- **Three zooms that nest**, each four times wider than the last (`ZOOM_STEP`). `chart close` is sized to hold the nearest nine stars, rounded up to a tidy figure. `chart` (the default, `mid` in the code) is what stands out within four times that. `chart far` (also `gas`) is sixteen times. Each numbers what suits its scale: the nearest nine; voices, flagged systems and bright stars; bright stars and voices beyond the plain chart.
+- **Under each list, in words**: which numbers a hard burn reaches on these tanks, which only economy reaches, and which are out of reach (`reachWords`); and whose space we are inside, or how near it begins and in which direction (`heldWords`).
+- **`plot`** takes a number from the last chart or a star's name (whole or part), and says what the telescopes see as well as the cost. `scope` is now just another word for it.
+- **The picture's data is still made.** Every chart item carries `MapData` (96 cells a side: gas in 36 shades, stars, `held` space as a hull, `inner` box for the next zoom in). Nothing draws it now; it is there because it is exactly what an app's map would draw, and the tests keep it honest. The page's drawing code (`drawMap`) was removed in the commit that made this change and is in the history if wanted.
+- **Do not bring the picture back, or make any map interactive, without being asked.**
 
 ### ISRU improvements: thinking so far
 

@@ -102,10 +102,6 @@ body {
 #log { display: flex; flex-direction: column; gap: 2px; }
 .o { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .o.pre { white-space: pre; overflow-x: auto; line-height: 1.32; padding-block: 4px; flex: none; }
-/* A map is drawn one cell to a pixel and scaled up unsmoothed, so it stays as blocky as the text around it. */
-.o.map { margin: 0; padding-block: 6px 2px; display: flex; flex-direction: column; gap: 4px; flex: none; }
-.o.map canvas { display: block; width: min(100%, 20rem); aspect-ratio: 1; image-rendering: crisp-edges; image-rendering: pixelated; border: 1px solid var(--line); border-radius: 2px; }
-.o.map figcaption { color: var(--dim); }
 .o.echo { color: var(--dim); margin-top: 12px; }
 .o.mind { color: var(--mind); }
 .o.head { font-weight: 600; letter-spacing: .05em; margin-top: 4px; }
@@ -1605,8 +1601,8 @@ input, textarea {
   ];
   var clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
   function pickStar(ref, rng) {
-    const mix3 = ref.cluster ? ref.cluster.old ? OLD_MIX2 : YOUNG_MIX2 : FIELD_MIX;
-    return rng.weighted(mix3[ref.stratum]);
+    const mix2 = ref.cluster ? ref.cluster.old ? OLD_MIX2 : YOUNG_MIX2 : FIELD_MIX;
+    return rng.weighted(mix2[ref.stratum]);
   }
   function zoneTable(star, au, warm, snow, giants) {
     if (STARS[star].remnant) return { belt: 35, scorched: 20, dwarf: 20, gas: 8, ice: 17 };
@@ -2310,6 +2306,24 @@ input, textarea {
     }
     return inside;
   }
+  function nearestOnPolygon(polygon, x, y) {
+    let best = polygon[0] ?? { x, y };
+    let least = Infinity;
+    polygon.forEach((a, i) => {
+      const b = polygon[(i + 1) % polygon.length];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const span2 = dx * dx + dy * dy;
+      const t = span2 ? Math.min(1, Math.max(0, ((x - a.x) * dx + (y - a.y) * dy) / span2)) : 0;
+      const p = { x: a.x + t * dx, y: a.y + t * dy };
+      const d = Math.hypot(p.x - x, p.y - y);
+      if (d < least) {
+        least = d;
+        best = p;
+      }
+    });
+    return best;
+  }
   function drawPolygon(polygon, size, grid) {
     if (!polygon.length) return;
     const clampCell = (v) => Math.min(size - 1, Math.max(0, Math.floor(v)));
@@ -2723,15 +2737,15 @@ input, textarea {
   var GUIDE = {
     start: "First, a sweep. It costs an hour and shows what orbits this star.",
     swept: "That is everything big enough to see from here. We have two crews, both idle. {where} has fuel for the taking, and a survey would tell us what the rest is worth.",
-    sweptHint: 'Try "scoop {n}" and "survey". "ops" lists all the work here, and "look" (or "map") shows this table again.',
+    sweptHint: 'Try "scoop {n}" and "survey". "ops" lists all the work here, and "look" shows this table and the crews again.',
     sweptBare: "That is everything big enough to see from here. We have two crews, both idle. A survey would tell us what this place is worth.",
-    sweptBareHint: 'Try "survey". "ops" lists all the work here, and "look" (or "map") shows this table again.',
+    sweptBareHint: 'Try "survey". "ops" lists all the work here, and "look" shows this table and the crews again.',
     working: "Good. Nothing happens until you let the days run.",
     workingHint: '"stay" runs time until a crew finishes or something turns up. "stay 30" runs thirty days.',
     stayed: "That is the rhythm of it: put the crews to work, let the days run, see what turns up. Stay as long as it pays.",
     stayedHint: 'When you want to move on, "chart" shows what stands out among the stars in reach.',
     charted: "Pick one and I will work out what it costs. A few months for us is a few years for everyone outside.",
-    chartedHint: '"plot 1" costs the trip to number 1, and "scope 1" is what the telescope sees there. "chart close" lists the nearest stars; "chart far" shows the wider sky.',
+    chartedHint: '"plot 1" says what is at number 1 and what the trip costs. A name works too. "chart close" lists the nearest stars; "chart far" shows the wider sky.',
     done: "That is all of it. I will stop explaining now. Ask, if you want my view of anything."
   };
 
@@ -2863,6 +2877,19 @@ input, textarea {
   // src/core/game.ts
   var MAP_SIZE = 96;
   var ZOOM_STEP = 4;
+  var COMPASS = ["east", "north-east", "north", "north-west", "west", "south-west", "south", "south-east"];
+  var compass = (x, y) => COMPASS[(Math.round(Math.atan2(y, x) / (Math.PI / 4)) % 8 + 8) % 8];
+  function numberList(numbers) {
+    const runs = [];
+    for (let i = 0; i < numbers.length; i++) {
+      let j = i;
+      while (j + 1 < numbers.length && numbers[j + 1] === numbers[j] + 1) j++;
+      if (j - i >= 2) runs.push(`${numbers[i]} to ${numbers[j]}`);
+      else for (let k = i; k <= j; k++) runs.push(String(numbers[k]));
+      i = j;
+    }
+    return runs.length === 1 ? runs[0] : `${runs.slice(0, -1).join(", ")} and ${runs[runs.length - 1]}`;
+  }
   function roundUp(ly2) {
     return [2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 25, 32, 40, 50, 64, 80, 100].find((r) => r >= ly2) ?? Math.ceil(ly2 / 50) * 50;
   }
@@ -2912,7 +2939,8 @@ input, textarea {
     s: "stay",
     wait: "stay",
     c: "chart",
-    sc: "scope",
+    sc: "plot",
+    scope: "plot",
     p: "plot",
     b: "burn",
     go: "burn",
@@ -2927,7 +2955,8 @@ input, textarea {
     stop: "recall",
     idle: "recall",
     codex: "finds",
-    upgrades: "refits",
+    upgrades: "ship",
+    refits: "ship",
     fix: "repair",
     map: "look",
     system: "look",
@@ -2955,13 +2984,11 @@ input, textarea {
     "stay",
     "chart",
     "gas",
-    "scope",
     "plot",
     "burn",
     "drift",
     "ask",
     "ship",
-    "refits",
     "refit",
     "log",
     "finds",
@@ -3146,9 +3173,6 @@ input, textarea {
         case "gas":
           this.chart("far");
           break;
-        case "scope":
-          this.scope(arg);
-          break;
         case "plot":
           this.plot(arg);
           break;
@@ -3163,9 +3187,6 @@ input, textarea {
           break;
         case "ship":
           this.ship();
-          break;
-        case "refits":
-          this.refits();
           break;
         case "refit":
           this.refit(arg);
@@ -3248,16 +3269,16 @@ input, textarea {
       if (!this.mem.swept) return ["sweep", "chart", "ship", "ask", "help"];
       if ((this.lastVerb === "chart" || this.lastVerb === "gas") && s.chart.length) {
         const others = ["chart close", "chart", "chart far"].filter((_, i) => i !== ["close", "mid", "far"].indexOf(this.lastZoom));
-        return [...s.chart.slice(0, 5).map((_, i) => `plot ${i + 1}`), "scope 1", ...others, "look"];
+        return [...s.chart.slice(0, 5).map((_, i) => `plot ${i + 1}`), ...others, "look"];
       }
-      if ((this.lastVerb === "plot" || this.lastVerb === "scope") && s.plot) return ["burn", "burn eco", "chart", "look"];
+      if (this.lastVerb === "plot" && s.plot) return ["burn", "burn eco", "chart", "look"];
       const chips2 = [];
       if (s.crews.some((c) => c === null)) {
         for (const job of this.suggestions()) if (chips2.length < 3) chips2.push(job);
       }
       if (s.crews.some((c) => c !== null)) chips2.push("stay", "stay 30");
-      const refitReady = Object.keys(REFITS).some((t) => this.refitState(t) === "ready");
-      if (refitReady && s.crews.some((c) => c === null)) chips2.push("refits");
+      const ready = Object.keys(REFITS).find((t) => this.refitState(t) === "ready");
+      if (ready && s.crews.some((c) => c === null)) chips2.push(`refit ${ready}`);
       chips2.push("look", "ops", "chart", "ship", "ask");
       if (s.guide === 3) return ["chart", ...chips2.filter((c) => c !== "chart")];
       return chips2;
@@ -3316,13 +3337,18 @@ input, textarea {
       };
       let strip = " ";
       let index = " ";
+      let posted = " ";
       for (const b of sys.bodies) {
         const g = glyph[b.kind];
         const cell = Math.max(g.length + 2, 4);
+        const crews = this.state.crews.map((c, i) => c && c.body === b.n ? i + 1 : 0).filter((n) => n > 0);
         strip += pad(g, cell);
         index += pad(b.n === 0 ? "" : String(b.n), cell);
+        posted += pad(crews.length ? `c${crews.join("")}` : "", cell);
       }
-      const lines = [strip.trimEnd(), index.trimEnd(), "", " #  body                  au  work"];
+      const lines = [strip.trimEnd(), index.trimEnd()];
+      if (posted.trim()) lines.push(posted.trimEnd());
+      lines.push("", " #  body                  au  work");
       for (const b of sys.bodies) {
         const au = b.n === 0 ? "-" : b.au < 1 ? b.au.toFixed(2) : b.au < 10 ? b.au.toFixed(1) : String(Math.round(b.au));
         const mark = hinted.has(b.n) ? "!" : lived.has(b.n) ? "^" : " ";
@@ -3482,11 +3508,12 @@ input, textarea {
         this.text(`${this.starText(sys)} Nothing else here has been looked at yet.`);
         return;
       }
-      this.pre(this.systemTable());
+      this.pre([...this.systemTable(), "", ...this.state.crews.map((c, i) => ` crew ${i + 1}  ${c ? this.describe(c) : "idle"}`)]);
       const k = sys.discoveries.length;
       const lived = this.people().sites.some((x) => x.alive);
       const legend = [`survey ${k ? Math.round(100 * this.mem.found / k) : 100}%`, "! marks something worth a deep scan"];
       if (lived) legend.push("^ somebody lives there");
+      if (this.state.crews.some((c) => c && c.body >= 0)) legend.push("c1 under a body is crew 1 at work there");
       if (k || lived || this.scanTargets().length) this.dim(legend.join(" \xB7 "));
     }
     sweep() {
@@ -3987,17 +4014,14 @@ input, textarea {
       };
     }
     /**
-     * The space other people hold, for a map `radius` ly across: for each
-     * spreading culture, the convex hull of the systems it has something living
-     * in, with a little margin. One character per cell: '0' outside, '1' inside,
-     * '2' on the edge. We only know this for cultures we have met, or whose
-     * home we can hear, and only as the light shows it.
+     * The systems each spreading culture has something living in, as points in
+     * light-years from the ship (east and north positive). Only for cultures we
+     * have met, or whose home we can hear, and only as the light shows them.
+     * `within` leaves out those whose space cannot come that near.
      */
-    heldSpace(radius) {
+    heldPoints(within) {
       const s = this.state;
       const here = this.here.ref;
-      const size = MAP_SIZE;
-      const perLy = size / (2 * radius);
       const known = /* @__PURE__ */ new Map();
       for (const id of Object.keys(s.met)) {
         const c = id.startsWith("R") ? this.cultures.byId(id) : null;
@@ -4006,19 +4030,64 @@ input, textarea {
       for (const { site } of this.cultures.signals(here.x, here.y, s.tGal, HEARING)) {
         if (site.kind === "home" && site.culture.reach) known.set(site.culture.id, site.culture);
       }
-      const grid = new Uint8Array(size * size);
-      for (const c of known.values()) {
-        const reach = c.reach.radius;
-        if (Math.hypot(c.home.x - here.x, c.home.y - here.y) - reach > radius * Math.SQRT2 + 3) continue;
+      const out = [];
+      for (const culture of known.values()) {
+        const reach = culture.reach.radius;
+        if (Math.hypot(culture.home.x - here.x, culture.home.y - here.y) - reach > within) continue;
         const points = [];
-        for (const { ref } of this.galaxy.within(c.home.x, c.home.y, reach)) {
+        for (const { ref } of this.galaxy.within(culture.home.x, culture.home.y, reach)) {
           const light = Math.hypot(ref.x - here.x, ref.y - here.y);
-          if (!this.cultures.holds(c, this.systemAt(ref), s.tGal - light)) continue;
-          points.push({ x: ((ref.x - here.x) / radius + 1) * (size / 2), y: (1 - (ref.y - here.y) / radius) * (size / 2) });
+          if (this.cultures.holds(culture, this.systemAt(ref), s.tGal - light)) points.push({ x: ref.x - here.x, y: ref.y - here.y });
         }
-        if (points.length) drawPolygon(paddedHull(points, Math.max(1.5 * perLy, 1.5)), size, grid);
+        if (points.length) out.push({ culture, points });
+      }
+      return out;
+    }
+    /**
+     * The space other people hold, for a map `radius` ly across: for each
+     * spreading culture, the convex hull of its systems with a little margin.
+     * One character per cell: '0' outside, '1' inside, '2' on the edge.
+     */
+    heldSpace(radius) {
+      const size = MAP_SIZE;
+      const perLy = size / (2 * radius);
+      const grid = new Uint8Array(size * size);
+      for (const { points } of this.heldPoints(radius * Math.SQRT2 + 3)) {
+        const cells = points.map((p) => ({ x: (p.x / radius + 1) * (size / 2), y: (1 - p.y / radius) * (size / 2) }));
+        drawPolygon(paddedHull(cells, Math.max(1.5 * perLy, 1.5)), size, grid);
       }
       return grid.some((v) => v > 0) ? Array.from(grid).join("") : void 0;
+    }
+    /** The same thing in words, for a chart `radius` ly across: whose space we are in, or how near it begins. */
+    heldWords(radius) {
+      const out = [];
+      for (const { culture, points } of this.heldPoints(radius)) {
+        const hull = paddedHull(points, 1.5);
+        const edge = nearestOnPolygon(hull, 0, 0);
+        const d = Math.hypot(edge.x, edge.y);
+        if (insidePolygon(hull, 0, 0)) out.push(`We are inside the space of ${culture.title}. Its nearest edge is ${ly(d)} ly to the ${compass(edge.x, edge.y)}.`);
+        else if (d <= radius) out.push(`The space of ${culture.title} begins ${ly(d)} ly to the ${compass(edge.x, edge.y)}.`);
+      }
+      return out;
+    }
+    /** Which of the listed stars the ship could reach on what is in the tanks, as a sentence. */
+    reachWords(listed) {
+      const here = this.here.ref;
+      const can = (x, thrust) => {
+        const c = this.cost(planLeg(this.galaxy, here, x.ref, this.drive, thrust));
+        return c.fuelAfter >= 0 && this.state.ship.hull - c.hullLoss >= TUNE.HULL_FLOOR;
+      };
+      const hard = [];
+      const eco = [];
+      const none = [];
+      listed.forEach((x, i) => (can(x, 1) ? hard : can(x, TUNE.ECO) ? eco : none).push(i + 1));
+      if (!none.length && !eco.length) return "On these tanks a hard burn reaches all of them.";
+      if (!hard.length && !eco.length) return "On these tanks none of them is in reach, even on economy.";
+      const parts = [];
+      if (hard.length) parts.push(`a hard burn reaches ${numberList(hard)}`);
+      if (eco.length) parts.push(`only economy reaches ${numberList(eco)}`);
+      if (none.length) parts.push(`${numberList(none)} ${none.length === 1 ? "is" : "are"} out of reach`);
+      return `On these tanks: ${parts.join("; ")}.`;
     }
     /** The same map in characters, for a terminal: 41 columns by 13 rows. */
     sketch(zoom, radius, stars) {
@@ -4043,8 +4112,8 @@ input, textarea {
       for (const pin of stars) if (!pin.n && (pin.signal || zoom === "close")) put(pin.seen, pin.signal ? "^" : ".");
       for (const pin of stars) if (pin.n) put(pin.seen, pin.n <= 9 ? String(pin.n) : "*");
       grid[6][20] = "@";
-      const key = zoom === "far" ? "gas: blank void, . thin, : moderate, % dense, # cloud" : "map: : dense gas, % cloud";
-      return [...grid.map((row) => row.join("").trimEnd()), `${key} \xB7 @ us \xB7 edge at ${ly(radius)} ly`].join("\n");
+      const key = zoom === "far" ? [` @ us \xB7 edge at ${ly(radius)} ly`, " gas  . thin  : moderate  % dense  # cloud"] : [` @ us \xB7 : dense \xB7 % cloud \xB7 edge ${ly(radius)} ly`];
+      return [...grid.map((row) => row.join("").trimEnd()), ...key].join("\n");
     }
     /**
      * The sky around the ship, at one of three zooms that nest inside each
@@ -4120,7 +4189,9 @@ input, textarea {
         this.pre(lines);
         this.dim("g: gas on the way (_ void, . thin, : moderate, % dense, # a cloud across it)");
         this.dim("sees: O giants, ~ belts and comets \xB7 ! worth a deep scan \xB7 ^ a signal \xB7 * been there");
+        this.dim(this.reachWords(listed));
       }
+      for (const line of this.heldWords(radius)) this.dim(line);
       this.dim(
         zoom === "close" ? `The nearest stars${listed.length ? "" : ": none in range"}. "chart" and "chart far" look further out.` : zoom === "mid" ? `What stands out within ${ly(radius)} light-years${listed.length ? "" : ": nothing"}. "chart close" lists the nearest stars; "chart far" shows the wider sky.` : `The bright stars to steer by${listed.length ? "" : `: none within ${ly(radius)} light-years`}. "chart" and "chart close" look nearer.`
       );
@@ -4146,29 +4217,55 @@ input, textarea {
       if (!mem) return true;
       return sys.discoveries.some((d, i) => d.feature && d.feature.rarity >= 2 && (i >= mem.found || d.feature.hint !== void 0 && !mem.scanned.includes(d.feature.id)));
     }
+    /**
+     * The star a command is pointed at: a number from the last chart, or the
+     * name (or part of the name) of any star in sight.
+     */
     target(arg) {
       const s = this.state;
-      if (!s.chart.length) {
-        this.text("Pull up the chart first.");
+      const word = arg.trim();
+      if (word === "") {
+        this.text(s.chart.length ? `Which one? Give a number from the chart, 1 to ${s.chart.length}, or a name.` : "Which star? Pull up the chart, or give a name.");
         return null;
       }
-      const i = Number(arg) - 1;
-      if (arg === "" || !Number.isInteger(i) || !s.chart[i]) {
-        this.text(`Which one? Give a number from the chart, 1 to ${s.chart.length}.`);
-        return null;
+      if (/^\d+$/.test(word)) {
+        if (!s.chart.length) {
+          this.text("Pull up the chart first.");
+          return null;
+        }
+        const id = s.chart[Number(word) - 1];
+        if (!id) {
+          this.text(`Which one? Give a number from the chart, 1 to ${s.chart.length}, or a name.`);
+          return null;
+        }
+        return this.system(id);
       }
-      return this.system(s.chart[i]);
-    }
-    scope(arg) {
-      const sys = this.target(arg);
-      if (!sys) return;
-      const s = this.state;
       const here = this.here.ref;
-      const dist = Math.hypot(sys.ref.x - here.x, sys.ref.y - here.y);
+      const sight = [...this.galaxy.near(here.x, here.y, level(s, "optics")), ...this.cultures.signals(here.x, here.y, s.tGal, HEARING).map((v) => v.seen)];
+      const ids = [.../* @__PURE__ */ new Set([...s.chart, ...sight.map((x) => x.ref.id)])].filter((id) => id !== s.at);
+      const named = ids.map((id) => ({ id, name: this.nameOf(id).toLowerCase() }));
+      const want = word.toLowerCase();
+      let hits = named.filter((x) => x.name === want);
+      if (!hits.length) hits = named.filter((x) => x.name.startsWith(want));
+      if (!hits.length) hits = named.filter((x) => x.name.includes(want));
+      if (!hits.length) {
+        this.text(`No star in sight is called "${word}". The charts list the ones that are.`);
+        return null;
+      }
+      if (hits.length > 1) {
+        const some = hits.slice(0, 4).map((x) => this.nameOf(x.id)).join(", ");
+        this.text(`${hits.length} stars in sight match "${word}": ${some}${hits.length > 4 ? ", and more" : ""}. Give more of the name.`);
+        return null;
+      }
+      return this.system(hits[0].id);
+    }
+    /** What the telescopes and the radio make of a star from here. */
+    telescope(sys, dist) {
+      const s = this.state;
       const optics = level(s, "optics");
       const strata = this.galaxy.cfg.strata;
       const mem = s.mem[sys.ref.id];
-      const parts = [`${this.nameOf(sys.ref.id)}: ${starLine(sys)}, ${ly(dist)} light-years off. ${STARS[sys.star].text}`];
+      const parts = [`${this.nameOf(sys.ref.id)}: ${starLine(sys)}, ${ly(dist)} light-years off. ${this.starText(sys)}`];
       if (mem?.swept || dist <= strata[0].sight * optics) {
         const giants = sys.giants === 0 ? "No giants" : sys.giants === 1 ? "One giant" : `${sys.giants} giants`;
         const dust = ["no dust to speak of", "a little dust", "a fair infrared excess, so belts or comets", "a strong infrared excess: belts, comets or both"][sys.dust];
@@ -4187,15 +4284,11 @@ input, textarea {
         const who = s.met[voice.culture.id] ? `That is ${voice.culture.title}` : "Nobody we know";
         parts.push(`There is radio from there, structured and ${spanWords(dist)} old. ${who}. Whether they are still there is another matter.`);
       }
-      const leg = planLeg(this.galaxy, here, sys.ref, this.drive, 1);
-      parts.push(`The way there lies through ${Galaxy.gasWord(leg.gasMean)} gas${leg.gasMax >= 10 && leg.gasMean < 10 ? ", with a cloud across it" : ""}.`);
       if (mem) {
         const then = mem.seen.filter((x) => isLiving(x.phase) && s.met[x.id]).map((x) => s.met[x.id].title);
         parts.push(`We were there ${spanWords(s.tGal - mem.last)} ago${then.length ? `; ${then.join(" and ")} lived there then` : ""}.`);
       }
-      this.text(parts.join(" "));
-      s.plot = sys.ref.id;
-      this.dim(`"plot ${arg}" for the cost of going.`);
+      return parts.join(" ");
     }
     /** What a leg would cost and leave us with. */
     cost(leg) {
@@ -4223,6 +4316,7 @@ input, textarea {
       const ce = this.cost(eco);
       const time = (label, leg) => ` ${pad(label, 9)}${lpad(span(leg.ship), 8)}${lpad(span(leg.galaxy), 10)}`;
       const after = (label, c) => c.fuelAfter < 0 ? ` ${pad(label, 9)}  not enough fuel` : ` ${pad(label, 9)}${lpad(`${Math.round(c.fuelAfter)}%`, 6)}${lpad(`${Math.round(c.shieldAfter)}%`, 8)}${lpad(`${Math.max(0, Math.round(c.hullAfter))}%`, 7)}`;
+      this.text(this.telescope(sys, hard.dist));
       this.pre([
         ` to ${this.nameOf(sys.ref.id)} \xB7 ${ly(hard.dist)} ly \xB7 gas ${Galaxy.gasWord(hard.gasMean)}`,
         "",
@@ -4448,9 +4542,12 @@ input, textarea {
         ` tanks ${level(s, "tanks")} burn-yr \xB7 optics x${level(s, "optics")}`,
         ` crews ${s.crews.length}`,
         ` cruise here: gamma ${cruiseGamma(this.drive, 1, n).toFixed(1)} in ${Galaxy.gasWord(n)} gas`,
-        ` ${s.stats.systems} systems \xB7 ${s.stats.jumps} jumps \xB7 ${Math.round(s.stats.ly)} ly`
+        ` ${s.stats.systems} ${s.stats.systems === 1 ? "system" : "systems"} \xB7 ${s.stats.jumps} ${s.stats.jumps === 1 ? "jump" : "jumps"} \xB7 ${Math.round(s.stats.ly)} ly`,
+        "",
+        ...this.refitLines()
       ];
       this.pre(lines);
+      this.dim(`Knowledge in the Archive unlocks a refit; materials and a crew's time pay for it. "refit engine" starts one.`);
       if (s.ship.relics.length) this.text(`In the hold, under lock: ${s.ship.relics.map(relicLabel).join("; ")}.`);
     }
     refitState(track) {
@@ -4463,7 +4560,7 @@ input, textarea {
       if (s.ship.materials < cost.materials) return "materials";
       return "ready";
     }
-    refits() {
+    refitLines() {
       const s = this.state;
       const lines = [" refit    now > next   needs"];
       for (const track of Object.keys(REFITS)) {
@@ -4479,9 +4576,7 @@ input, textarea {
         lines.push(` ${pad(track, 8)} ${pad(`${info.levels[lv]} > ${info.levels[lv + 1]}`, 12)} ${flag}`);
         if (state === "ready") lines.push(`          costs ${cost.materials} mat, ${cost.days} days`);
       }
-      lines.push("", ` archive ${s.ship.archive} \xB7 materials ${Math.round(s.ship.materials)}`);
-      this.pre(lines);
-      this.dim(`Knowledge in the Archive unlocks a refit; materials and a crew's time pay for it. "refit engine" starts one.`);
+      return lines;
     }
     refit(arg) {
       const s = this.state;
@@ -4545,8 +4640,8 @@ input, textarea {
         "",
         " here",
         "  sweep       first look at this system",
-        "  look        the system table again (map)",
-        "  ops         crews and the work on offer",
+        "  look        the system, and the crews",
+        "  ops         the work on offer here",
         "  scoop N     fuel from a giant (0 = star)",
         "  ice N       rebuild the shield",
         "  mine N      materials for the hold",
@@ -4559,14 +4654,14 @@ input, textarea {
         "  chart       what stands out nearby",
         "  chart close the nearest stars",
         "  chart far   the wider sky",
-        "  scope N     what the telescope sees",
-        "  plot N      what going there costs",
+        "  plot N      what is there, and the cost",
+        "              (a name works as well)",
         "  burn        go, at full thrust",
         "  burn eco    go gently: frugal and slow",
         " the ship",
         "  ask         what the Mind thinks",
-        "  ship        condition and clocks",
-        '  refits      upgrades, and "refit X"',
+        "  ship        condition, clocks, refits",
+        "  refit X     start a refit",
         "  log, finds  journal and catalogue",
         "  name X      name this system"
       ]);
@@ -4603,127 +4698,13 @@ input, textarea {
     const n = Number(fromQuery ?? fromHash ?? read("lightspeed.last") ?? DEMO.seed);
     return Number.isInteger(n) && n > 0 && n < 2 ** 31 ? n : DEMO.seed;
   }
-  var DIGITS = [
-    "111101101101111",
-    "010110010010111",
-    "111001111100111",
-    "111001111001111",
-    "101101111001001",
-    "111100111001111",
-    "111100111101111",
-    "111001001001001",
-    "111101111101111",
-    "111101111001111"
-  ];
-  function token(name) {
-    const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-    const hex = /^#([0-9a-f]{6})$/i.exec(raw)?.[1] ?? "808080";
-    return [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
-  }
-  var mix2 = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
-  var css = (c) => `rgb(${c.map(Math.round).join(",")})`;
-  var blend = (a, b, t) => css(mix2(a, b, t));
-  function drawMap(map) {
-    const canvas = document.createElement("canvas");
-    canvas.width = canvas.height = map.size;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-    const bg = token("--bg");
-    const ink = token("--ink");
-    const tones = { warm: token("--alert"), gold: token("--good"), white: ink, cold: token("--mind") };
-    const cells = (color, points) => {
-      ctx.fillStyle = color;
-      for (const [x, y] of points) ctx.fillRect(x, y, 1, 1);
-    };
-    const voice = token("--ok");
-    const haze = Array.from({ length: 36 }, (_, i) => mix2(bg, token("--dim"), 0.78 * (i / 35) ** 1.15));
-    for (let i = 0; i < map.gas.length; i++) {
-      const shade2 = haze[parseInt(map.gas[i], 36)];
-      cells(css(map.held && map.held[i] !== "0" ? mix2(shade2, voice, 0.16) : shade2), [[i % map.size, Math.floor(i / map.size)]]);
-    }
-    if (map.inner) {
-      const lo = Math.round(map.size / 2 - map.inner);
-      const hi = Math.round(map.size / 2 + map.inner) - 1;
-      const points = [];
-      for (let i = lo; i <= hi; i += 2) points.push([i, lo], [i, hi], [lo, i], [hi, i]);
-      cells(blend(bg, ink, 0.3), points);
-    }
-    if (map.held) {
-      const edge = [];
-      for (let i = 0; i < map.held.length; i++) if (map.held[i] === "2") edge.push([i % map.size, Math.floor(i / map.size)]);
-      cells(blend(bg, voice, 0.7), edge);
-    }
-    const m = map.size / 2;
-    const taken = [[m - 2, m - 2, m + 2, m + 2]];
-    const numbered = map.stars.filter((star) => star.n).sort((a, b) => (a.n ?? 0) - (b.n ?? 0));
-    for (const star of [...map.stars.filter((star2) => !star2.n), ...numbered]) {
-      const { x, y } = star;
-      const color = star.signal && !star.n ? blend(bg, voice, 1) : blend(bg, tones[star.tone], star.n ? 1 : 0.55);
-      cells(color, [[x, y]]);
-      if (star.size >= 2) cells(color, [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]]);
-      if (star.size >= 3) cells(color, [[x + 2, y], [x - 2, y], [x, y + 2], [x, y - 2]]);
-      if (star.visited) cells(blend(bg, ink, 0.55), [[x - 1, y + star.size + 1], [x, y + star.size + 1], [x + 1, y + star.size + 1]]);
-      if (star.odd) cells(blend(bg, tones.warm, 1), [[x - 3, y - 2], [x - 3, y - 1], [x - 3, y], [x - 3, y + 2]]);
-      if (star.signal) {
-        const top = y - star.size - 2;
-        cells(blend(bg, voice, 1), [[x, top], [x - 1, top + 1], [x + 1, top + 1]]);
-      }
-      if (star.n) taken.push([x - star.size, y - star.size - (star.signal ? 3 : 0), x + star.size, y + star.size]);
-    }
-    const clash = (box) => taken.some((t) => box[0] <= t[2] && box[2] >= t[0] && box[1] <= t[3] && box[3] >= t[1]);
-    for (const star of numbered) {
-      const text = String(star.n);
-      const width = text.length * 4 - 1;
-      const gap = star.size + 1;
-      const spots = [
-        [star.x + gap, star.y - 2],
-        [star.x - gap - width + 1, star.y - 2],
-        [star.x - Math.floor(width / 2), star.y - gap - 4],
-        [star.x - Math.floor(width / 2), star.y + gap],
-        [star.x + gap, star.y - gap - 4],
-        [star.x + gap, star.y + gap],
-        [star.x - gap - width + 1, star.y - gap - 4],
-        [star.x - gap - width + 1, star.y + gap]
-      ].map(([left2, top2]) => [Math.min(map.size - width - 1, Math.max(1, left2)), Math.min(map.size - 6, Math.max(1, top2))]);
-      const [left, top] = spots.find(([l, t]) => !clash([l, t, l + width - 1, t + 4])) ?? spots[0];
-      taken.push([left - 1, top - 1, left + width, top + 5]);
-      ctx.globalAlpha = 0.8;
-      ctx.fillStyle = blend(bg, bg, 0);
-      ctx.fillRect(left - 1, top - 1, width + 2, 7);
-      ctx.globalAlpha = 1;
-      [...text].forEach((digit, d) => {
-        const points = [];
-        [...DIGITS[Number(digit)]].forEach((on, i) => on === "1" && points.push([left + d * 4 + i % 3, top + Math.floor(i / 3)]));
-        cells(blend(bg, ink, 1), points);
-      });
-    }
-    cells(blend(bg, bg, 0), [[m, m]]);
-    cells(blend(bg, tones.cold, 1), [[m - 1, m - 1], [m, m - 1], [m + 1, m - 1], [m - 1, m], [m + 1, m], [m - 1, m + 1], [m, m + 1], [m + 1, m + 1]]);
-    canvas.setAttribute("role", "img");
-    canvas.setAttribute("aria-label", "Map of the sky around the ship");
-    return canvas;
-  }
   function print(items) {
     let first = null;
     for (const item of items) {
-      let el;
-      const picture = item.k === "map" && item.map ? drawMap(item.map) : null;
-      if (picture && item.map) {
-        el = document.createElement("figure");
-        el.className = "o map fresh";
-        const caption = document.createElement("figcaption");
-        const edge = item.map.radius < 10 ? item.map.radius.toFixed(1) : Math.round(item.map.radius);
-        const parts = [`edge at ${edge} ly`, "the grey haze is gas, heavier where it is thicker", "the hollow square is us"];
-        if (item.map.inner) parts.push(`the dotted box is "${item.map.zoom === "far" ? "chart" : "chart close"}"`);
-        if (item.map.held || item.map.stars.some((star) => star.signal)) parts.push("green is somebody");
-        caption.textContent = parts.join(" \xB7 ");
-        el.append(picture, caption);
-      } else {
-        const block = item.k === "pre" || item.k === "map";
-        el = document.createElement(block ? "pre" : "p");
-        el.className = `o ${block ? "pre" : item.k} fresh`;
-        el.textContent = item.s;
-      }
+      const block = item.k === "pre" || item.k === "map";
+      const el = document.createElement(block ? "pre" : "p");
+      el.className = `o ${block ? "pre" : item.k} fresh`;
+      el.textContent = item.s;
       log.appendChild(el);
       first ?? (first = el);
     }

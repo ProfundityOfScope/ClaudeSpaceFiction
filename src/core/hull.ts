@@ -45,6 +45,26 @@ export function insidePolygon(polygon: Point[], x: number, y: number): boolean {
   return inside;
 }
 
+/** The point on a polygon's edge nearest to a given point. */
+export function nearestOnPolygon(polygon: Point[], x: number, y: number): Point {
+  let best: Point = polygon[0] ?? { x, y };
+  let least = Infinity;
+  polygon.forEach((a, i) => {
+    const b = polygon[(i + 1) % polygon.length];
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const span = dx * dx + dy * dy;
+    const t = span ? Math.min(1, Math.max(0, ((x - a.x) * dx + (y - a.y) * dy) / span)) : 0;
+    const p = { x: a.x + t * dx, y: a.y + t * dy };
+    const d = Math.hypot(p.x - x, p.y - y);
+    if (d < least) {
+      least = d;
+      best = p;
+    }
+  });
+  return best;
+}
+
 /**
  * Draw a polygon onto a grid `size` cells a side, where cell (c, r) covers
  * x from c to c + 1 and y from r to r + 1. Cells inside are raised to at

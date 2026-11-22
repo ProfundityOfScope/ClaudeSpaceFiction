@@ -370,14 +370,14 @@ export function speak(mind: MindState, seed: number, pool: string, vars: Record<
 export const GUIDE = {
   start: 'First, a sweep. It costs an hour and shows what orbits this star.',
   swept: 'That is everything big enough to see from here. We have two crews, both idle. {where} has fuel for the taking, and a survey would tell us what the rest is worth.',
-  sweptHint: 'Try "scoop {n}" and "survey". "ops" lists all the work here, and "look" (or "map") shows this table again.',
+  sweptHint: 'Try "scoop {n}" and "survey". "ops" lists all the work here, and "look" shows this table and the crews again.',
   sweptBare: 'That is everything big enough to see from here. We have two crews, both idle. A survey would tell us what this place is worth.',
-  sweptBareHint: 'Try "survey". "ops" lists all the work here, and "look" (or "map") shows this table again.',
+  sweptBareHint: 'Try "survey". "ops" lists all the work here, and "look" shows this table and the crews again.',
   working: 'Good. Nothing happens until you let the days run.',
   workingHint: '"stay" runs time until a crew finishes or something turns up. "stay 30" runs thirty days.',
   stayed: 'That is the rhythm of it: put the crews to work, let the days run, see what turns up. Stay as long as it pays.',
   stayedHint: 'When you want to move on, "chart" shows what stands out among the stars in reach.',
   charted: 'Pick one and I will work out what it costs. A few months for us is a few years for everyone outside.',
-  chartedHint: '"plot 1" costs the trip to number 1, and "scope 1" is what the telescope sees there. "chart close" lists the nearest stars; "chart far" shows the wider sky.',
+  chartedHint: '"plot 1" says what is at number 1 and what the trip costs. A name works too. "chart close" lists the nearest stars; "chart far" shows the wider sky.',
   done: 'That is all of it. I will stop explaining now. Ask, if you want my view of anything.',
 } as const;

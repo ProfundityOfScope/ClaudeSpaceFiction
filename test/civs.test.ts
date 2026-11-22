@@ -261,6 +261,7 @@ test('space somebody holds is drawn as a hull round their systems, once we know 
   g.state.ship.levels.hull = 10;
   const inside = galaxy.within(reach.home.x, reach.home.y, 5).find((s) => s.dist > 0)!;
   fly(g, inside.ref.id);
+  assert.match(said(g.exec('chart')), /inside the space of .*nearest edge is [\d.]+ ly to the (north|south|east|west)|The space of .* begins/, 'and the chart says so in words');
   for (const command of ['chart close', 'chart', 'chart far']) {
     const map = g.exec(command).find((o) => o.k === 'map')!.map!;
     assert.ok(map.held, `${command}: their home can be heard from here, so their space is drawn`);

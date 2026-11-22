@@ -10,7 +10,7 @@ import { STARS, bodyLabel, bodyRef, generateSystem, renderFeature, starLine, typ
 import { FEATURES, FEATURE_BY_ID, RARITY_WORD, type FeatureDef } from './features.ts';
 import { Cultures, HEARING, frontier, isLiving, type Culture, type Phase, type Presence, type Site } from './civs.ts';
 import { relicFrom, relicLabel, ruinHint, ruinText, settledText } from './cultures.ts';
-import { drawPolygon, paddedHull, type Point } from './hull.ts';
+import { drawPolygon, insidePolygon, nearestOnPolygon, paddedHull, type Point } from './hull.ts';
 import { cruiseGamma, planLeg, type Leg } from './travel.ts';
 import { GUIDE, fill, speak } from './mind.ts';
 import { K, Stream, mix, strHash } from './rng.ts';
@@ -75,6 +75,23 @@ interface Pin {
   signal?: boolean;
 }
 
+const COMPASS = ['east', 'north-east', 'north', 'north-west', 'west', 'south-west', 'south', 'south-east'];
+/** The compass point a direction lies nearest to, with north up the chart. */
+const compass = (x: number, y: number) => COMPASS[((Math.round(Math.atan2(y, x) / (Math.PI / 4)) % 8) + 8) % 8];
+
+/** Chart numbers as a phrase: [1, 2, 3, 4, 9, 10] is "1 to 4, 9 and 10". */
+function numberList(numbers: number[]): string {
+  const runs: string[] = [];
+  for (let i = 0; i < numbers.length; i++) {
+    let j = i;
+    while (j + 1 < numbers.length && numbers[j + 1] === numbers[j] + 1) j++;
+    if (j - i >= 2) runs.push(`${numbers[i]} to ${numbers[j]}`);
+    else for (let k = i; k <= j; k++) runs.push(String(numbers[k]));
+    i = j;
+  }
+  return runs.length === 1 ? runs[0] : `${runs.slice(0, -1).join(', ')} and ${runs[runs.length - 1]}`;
+}
+
 /** Round a map's radius up to a figure that reads well in a caption. */
 function roundUp(ly: number): number {
   return [2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 25, 32, 40, 50, 64, 80, 100].find((r) => r >= ly) ?? Math.ceil(ly / 50) * 50;
@@ -135,15 +152,15 @@ const ORDINALS = ['', 'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 's
 const ordinal = (n: number) => ORDINALS[n] ?? `${n}th`;
 const RICH = ['none', 'thin', 'fair', 'rich'];
 const ALIASES: Record<string, string> = {
-  l: 'look', sw: 'sweep', o: 'ops', s: 'stay', wait: 'stay', c: 'chart', sc: 'scope', p: 'plot',
+  l: 'look', sw: 'sweep', o: 'ops', s: 'stay', wait: 'stay', c: 'chart', sc: 'plot', scope: 'plot', p: 'plot',
   b: 'burn', go: 'burn', a: 'ask', st: 'ship', status: 'ship', j: 'log', journal: 'log', h: 'help', '?': 'help',
-  cut: 'ice', stop: 'recall', idle: 'recall', codex: 'finds', upgrades: 'refits', fix: 'repair',
+  cut: 'ice', stop: 'recall', idle: 'recall', codex: 'finds', upgrades: 'ship', refits: 'ship', fix: 'repair',
   map: 'look', system: 'look', sys: 'look', jump: 'burn', nav: 'chart', crews: 'ops', crew: 'ops', work: 'ops',
   far: 'gas', wide: 'gas', lanes: 'gas',
 };
 const VERBS = [
   'look', 'sweep', 'ops', 'scoop', 'ice', 'mine', 'survey', 'scan', 'repair', 'recall', 'stay', 'chart', 'gas',
-  'scope', 'plot', 'burn', 'drift', 'ask', 'ship', 'refits', 'refit', 'log', 'finds', 'name', 'help',
+  'plot', 'burn', 'drift', 'ask', 'ship', 'refit', 'log', 'finds', 'name', 'help',
 ];
 
 /** How many single-letter edits turn one word into another. */
@@ -330,13 +347,11 @@ export class Game {
       case 'stay': this.stay(arg); break;
       case 'chart': this.chart(arg); break;
       case 'gas': this.chart('far'); break;
-      case 'scope': this.scope(arg); break;
       case 'plot': this.plot(arg); break;
       case 'burn': this.burn(arg); break;
       case 'drift': this.drift(); break;
       case 'ask': this.ask(); break;
       case 'ship': this.ship(); break;
-      case 'refits': this.refits(); break;
       case 'refit': this.refit(arg); break;
       case 'log': this.log(); break;
       case 'finds': this.finds(); break;
@@ -411,16 +426,16 @@ export class Game {
     if (!this.mem.swept) return ['sweep', 'chart', 'ship', 'ask', 'help'];
     if ((this.lastVerb === 'chart' || this.lastVerb === 'gas') && s.chart.length) {
       const others = (['chart close', 'chart', 'chart far'] as const).filter((_, i) => i !== ['close', 'mid', 'far'].indexOf(this.lastZoom));
-      return [...s.chart.slice(0, 5).map((_, i) => `plot ${i + 1}`), 'scope 1', ...others, 'look'];
+      return [...s.chart.slice(0, 5).map((_, i) => `plot ${i + 1}`), ...others, 'look'];
     }
-    if ((this.lastVerb === 'plot' || this.lastVerb === 'scope') && s.plot) return ['burn', 'burn eco', 'chart', 'look'];
+    if (this.lastVerb === 'plot' && s.plot) return ['burn', 'burn eco', 'chart', 'look'];
     const chips: string[] = [];
     if (s.crews.some((c) => c === null)) {
       for (const job of this.suggestions()) if (chips.length < 3) chips.push(job);
     }
     if (s.crews.some((c) => c !== null)) chips.push('stay', 'stay 30');
-    const refitReady = (Object.keys(REFITS) as RefitTrack[]).some((t) => this.refitState(t) === 'ready');
-    if (refitReady && s.crews.some((c) => c === null)) chips.push('refits');
+    const ready = (Object.keys(REFITS) as RefitTrack[]).find((t) => this.refitState(t) === 'ready');
+    if (ready && s.crews.some((c) => c === null)) chips.push(`refit ${ready}`);
     // The same five always close the row, so they are where the thumb expects them.
     chips.push('look', 'ops', 'chart', 'ship', 'ask');
     // While the walkthrough is pointing at the chart, put it first.
@@ -483,13 +498,19 @@ export class Game {
     // A strip of the system, bodies in order outward, with their numbers underneath.
     let strip = ' ';
     let index = ' ';
+    // Under that, which crews are at which body: "c2" is crew 2.
+    let posted = ' ';
     for (const b of sys.bodies) {
       const g = glyph[b.kind];
       const cell = Math.max(g.length + 2, 4);
+      const crews = this.state.crews.map((c, i) => (c && c.body === b.n ? i + 1 : 0)).filter((n) => n > 0);
       strip += pad(g, cell);
       index += pad(b.n === 0 ? '' : String(b.n), cell);
+      posted += pad(crews.length ? `c${crews.join('')}` : '', cell);
     }
-    const lines = [strip.trimEnd(), index.trimEnd(), '', ' #  body                  au  work'];
+    const lines = [strip.trimEnd(), index.trimEnd()];
+    if (posted.trim()) lines.push(posted.trimEnd());
+    lines.push('', ' #  body                  au  work');
     for (const b of sys.bodies) {
       const au = b.n === 0 ? '-' : b.au < 1 ? b.au.toFixed(2) : b.au < 10 ? b.au.toFixed(1) : String(Math.round(b.au));
       const mark = hinted.has(b.n) ? '!' : lived.has(b.n) ? '^' : ' ';
@@ -662,11 +683,12 @@ export class Game {
       this.text(`${this.starText(sys)} Nothing else here has been looked at yet.`);
       return;
     }
-    this.pre(this.systemTable());
+    this.pre([...this.systemTable(), '', ...this.state.crews.map((c, i) => ` crew ${i + 1}  ${c ? this.describe(c) : 'idle'}`)]);
     const k = sys.discoveries.length;
     const lived = this.people().sites.some((x) => x.alive);
     const legend = [`survey ${k ? Math.round((100 * this.mem.found) / k) : 100}%`, '! marks something worth a deep scan'];
     if (lived) legend.push('^ somebody lives there');
+    if (this.state.crews.some((c) => c && c.body >= 0)) legend.push('c1 under a body is crew 1 at work there');
     if (k || lived || this.scanTargets().length) this.dim(legend.join(' · '));
   }
 
@@ -1194,17 +1216,14 @@ export class Game {
   }
 
   /**
-   * The space other people hold, for a map `radius` ly across: for each
-   * spreading culture, the convex hull of the systems it has something living
-   * in, with a little margin. One character per cell: '0' outside, '1' inside,
-   * '2' on the edge. We only know this for cultures we have met, or whose
-   * home we can hear, and only as the light shows it.
+   * The systems each spreading culture has something living in, as points in
+   * light-years from the ship (east and north positive). Only for cultures we
+   * have met, or whose home we can hear, and only as the light shows them.
+   * `within` leaves out those whose space cannot come that near.
    */
-  private heldSpace(radius: number): string | undefined {
+  private heldPoints(within: number): { culture: Culture; points: Point[] }[] {
     const s = this.state;
     const here = this.here.ref;
-    const size = MAP_SIZE;
-    const perLy = size / (2 * radius);
     const known = new Map<string, Culture>();
     for (const id of Object.keys(s.met)) {
       const c = id.startsWith('R') ? this.cultures.byId(id) : null;
@@ -1213,22 +1232,69 @@ export class Game {
     for (const { site } of this.cultures.signals(here.x, here.y, s.tGal, HEARING)) {
       if (site.kind === 'home' && site.culture.reach) known.set(site.culture.id, site.culture);
     }
-    const grid = new Uint8Array(size * size);
-    for (const c of known.values()) {
-      // The hull is set by their outermost systems, wherever those are, so look at everything they could hold. Skip those too far off to reach the map at all.
-      const reach = c.reach!.radius;
-      if (Math.hypot(c.home.x - here.x, c.home.y - here.y) - reach > radius * Math.SQRT2 + 3) continue;
+    const out: { culture: Culture; points: Point[] }[] = [];
+    for (const culture of known.values()) {
+      // A hull is set by their outermost systems, wherever those are, so look at everything they could hold.
+      const reach = culture.reach!.radius;
+      if (Math.hypot(culture.home.x - here.x, culture.home.y - here.y) - reach > within) continue;
       const points: Point[] = [];
-      for (const { ref } of this.galaxy.within(c.home.x, c.home.y, reach)) {
+      for (const { ref } of this.galaxy.within(culture.home.x, culture.home.y, reach)) {
         const light = Math.hypot(ref.x - here.x, ref.y - here.y);
-        if (!this.cultures.holds(c, this.systemAt(ref), s.tGal - light)) continue;
-        // In cells, from the top left.
-        points.push({ x: ((ref.x - here.x) / radius + 1) * (size / 2), y: (1 - (ref.y - here.y) / radius) * (size / 2) });
+        if (this.cultures.holds(culture, this.systemAt(ref), s.tGal - light)) points.push({ x: ref.x - here.x, y: ref.y - here.y });
       }
-      // A margin of a light-year and a half, and never so little that a single system vanishes on a wide map.
-      if (points.length) drawPolygon(paddedHull(points, Math.max(1.5 * perLy, 1.5)), size, grid);
+      if (points.length) out.push({ culture, points });
+    }
+    return out;
+  }
+
+  /**
+   * The space other people hold, for a map `radius` ly across: for each
+   * spreading culture, the convex hull of its systems with a little margin.
+   * One character per cell: '0' outside, '1' inside, '2' on the edge.
+   */
+  private heldSpace(radius: number): string | undefined {
+    const size = MAP_SIZE;
+    const perLy = size / (2 * radius);
+    const grid = new Uint8Array(size * size);
+    for (const { points } of this.heldPoints(radius * Math.SQRT2 + 3)) {
+      // In cells, from the top left. The margin is a light-year and a half, and never so little that a single system vanishes on a wide map.
+      const cells = points.map((p) => ({ x: (p.x / radius + 1) * (size / 2), y: (1 - p.y / radius) * (size / 2) }));
+      drawPolygon(paddedHull(cells, Math.max(1.5 * perLy, 1.5)), size, grid);
     }
     return grid.some((v) => v > 0) ? Array.from(grid).join('') : undefined;
+  }
+
+  /** The same thing in words, for a chart `radius` ly across: whose space we are in, or how near it begins. */
+  private heldWords(radius: number): string[] {
+    const out: string[] = [];
+    for (const { culture, points } of this.heldPoints(radius)) {
+      const hull = paddedHull(points, 1.5);
+      const edge = nearestOnPolygon(hull, 0, 0);
+      const d = Math.hypot(edge.x, edge.y);
+      if (insidePolygon(hull, 0, 0)) out.push(`We are inside the space of ${culture.title}. Its nearest edge is ${ly(d)} ly to the ${compass(edge.x, edge.y)}.`);
+      else if (d <= radius) out.push(`The space of ${culture.title} begins ${ly(d)} ly to the ${compass(edge.x, edge.y)}.`);
+    }
+    return out;
+  }
+
+  /** Which of the listed stars the ship could reach on what is in the tanks, as a sentence. */
+  private reachWords(listed: Seen[]): string {
+    const here = this.here.ref;
+    const can = (x: Seen, thrust: number) => {
+      const c = this.cost(planLeg(this.galaxy, here, x.ref, this.drive, thrust));
+      return c.fuelAfter >= 0 && this.state.ship.hull - c.hullLoss >= TUNE.HULL_FLOOR;
+    };
+    const hard: number[] = [];
+    const eco: number[] = [];
+    const none: number[] = [];
+    listed.forEach((x, i) => (can(x, 1) ? hard : can(x, TUNE.ECO) ? eco : none).push(i + 1));
+    if (!none.length && !eco.length) return 'On these tanks a hard burn reaches all of them.';
+    if (!hard.length && !eco.length) return 'On these tanks none of them is in reach, even on economy.';
+    const parts: string[] = [];
+    if (hard.length) parts.push(`a hard burn reaches ${numberList(hard)}`);
+    if (eco.length) parts.push(`only economy reaches ${numberList(eco)}`);
+    if (none.length) parts.push(`${numberList(none)} ${none.length === 1 ? 'is' : 'are'} out of reach`);
+    return `On these tanks: ${parts.join('; ')}.`;
   }
 
   /** The same map in characters, for a terminal: 41 columns by 13 rows. */
@@ -1256,8 +1322,9 @@ export class Game {
     for (const pin of stars) if (!pin.n && (pin.signal || zoom === 'close')) put(pin.seen, pin.signal ? '^' : '.');
     for (const pin of stars) if (pin.n) put(pin.seen, pin.n <= 9 ? String(pin.n) : '*');
     grid[6][20] = '@';
-    const key = zoom === 'far' ? 'gas: blank void, . thin, : moderate, % dense, # cloud' : 'map: : dense gas, % cloud';
-    return [...grid.map((row) => row.join('').trimEnd()), `${key} · @ us · edge at ${ly(radius)} ly`].join('\n');
+    // The key has to fit a phone as well, so the far chart's longer one takes two lines.
+    const key = zoom === 'far' ? [` @ us · edge at ${ly(radius)} ly`, ' gas  . thin  : moderate  % dense  # cloud'] : [` @ us · : dense · % cloud · edge ${ly(radius)} ly`];
+    return [...grid.map((row) => row.join('').trimEnd()), ...key].join('\n');
   }
 
   /**
@@ -1350,7 +1417,9 @@ export class Game {
       this.pre(lines);
       this.dim('g: gas on the way (_ void, . thin, : moderate, % dense, # a cloud across it)');
       this.dim('sees: O giants, ~ belts and comets · ! worth a deep scan · ^ a signal · * been there');
+      this.dim(this.reachWords(listed));
     }
+    for (const line of this.heldWords(radius)) this.dim(line);
     this.dim(
       zoom === 'close'
         ? `The nearest stars${listed.length ? '' : ': none in range'}. "chart" and "chart far" look further out.`
@@ -1384,30 +1453,57 @@ export class Game {
     return sys.discoveries.some((d, i) => d.feature && d.feature.rarity >= 2 && (i >= mem.found || (d.feature.hint !== undefined && !mem.scanned.includes(d.feature.id))));
   }
 
+  /**
+   * The star a command is pointed at: a number from the last chart, or the
+   * name (or part of the name) of any star in sight.
+   */
   private target(arg: string): StarSystem | null {
     const s = this.state;
-    if (!s.chart.length) {
-      this.text('Pull up the chart first.');
+    const word = arg.trim();
+    if (word === '') {
+      this.text(s.chart.length ? `Which one? Give a number from the chart, 1 to ${s.chart.length}, or a name.` : 'Which star? Pull up the chart, or give a name.');
       return null;
     }
-    const i = Number(arg) - 1;
-    if (arg === '' || !Number.isInteger(i) || !s.chart[i]) {
-      this.text(`Which one? Give a number from the chart, 1 to ${s.chart.length}.`);
+    if (/^\d+$/.test(word)) {
+      if (!s.chart.length) {
+        this.text('Pull up the chart first.');
+        return null;
+      }
+      const id = s.chart[Number(word) - 1];
+      if (!id) {
+        this.text(`Which one? Give a number from the chart, 1 to ${s.chart.length}, or a name.`);
+        return null;
+      }
+      return this.system(id);
+    }
+    // By name: whatever was on the last chart, and anything else the telescopes or the radio can pick out from here.
+    const here = this.here.ref;
+    const sight = [...this.galaxy.near(here.x, here.y, level(s, 'optics')), ...this.cultures.signals(here.x, here.y, s.tGal, HEARING).map((v) => v.seen)];
+    const ids = [...new Set([...s.chart, ...sight.map((x) => x.ref.id)])].filter((id) => id !== s.at);
+    const named = ids.map((id) => ({ id, name: this.nameOf(id).toLowerCase() }));
+    const want = word.toLowerCase();
+    let hits = named.filter((x) => x.name === want);
+    if (!hits.length) hits = named.filter((x) => x.name.startsWith(want));
+    if (!hits.length) hits = named.filter((x) => x.name.includes(want));
+    if (!hits.length) {
+      this.text(`No star in sight is called "${word}". The charts list the ones that are.`);
       return null;
     }
-    return this.system(s.chart[i]);
+    if (hits.length > 1) {
+      const some = hits.slice(0, 4).map((x) => this.nameOf(x.id)).join(', ');
+      this.text(`${hits.length} stars in sight match "${word}": ${some}${hits.length > 4 ? ', and more' : ''}. Give more of the name.`);
+      return null;
+    }
+    return this.system(hits[0].id);
   }
 
-  private scope(arg: string) {
-    const sys = this.target(arg);
-    if (!sys) return;
+  /** What the telescopes and the radio make of a star from here. */
+  private telescope(sys: StarSystem, dist: number): string {
     const s = this.state;
-    const here = this.here.ref;
-    const dist = Math.hypot(sys.ref.x - here.x, sys.ref.y - here.y);
     const optics = level(s, 'optics');
     const strata = this.galaxy.cfg.strata;
     const mem = s.mem[sys.ref.id];
-    const parts = [`${this.nameOf(sys.ref.id)}: ${starLine(sys)}, ${ly(dist)} light-years off. ${STARS[sys.star].text}`];
+    const parts = [`${this.nameOf(sys.ref.id)}: ${starLine(sys)}, ${ly(dist)} light-years off. ${this.starText(sys)}`];
     if (mem?.swept || dist <= strata[0].sight * optics) {
       const giants = sys.giants === 0 ? 'No giants' : sys.giants === 1 ? 'One giant' : `${sys.giants} giants`;
       const dust = ['no dust to speak of', 'a little dust', 'a fair infrared excess, so belts or comets', 'a strong infrared excess: belts, comets or both'][sys.dust];
@@ -1426,15 +1522,11 @@ export class Game {
       const who = s.met[voice.culture.id] ? `That is ${voice.culture.title}` : 'Nobody we know';
       parts.push(`There is radio from there, structured and ${spanWords(dist)} old. ${who}. Whether they are still there is another matter.`);
     }
-    const leg = planLeg(this.galaxy, here, sys.ref, this.drive, 1);
-    parts.push(`The way there lies through ${Galaxy.gasWord(leg.gasMean)} gas${leg.gasMax >= 10 && leg.gasMean < 10 ? ', with a cloud across it' : ''}.`);
     if (mem) {
       const then = mem.seen.filter((x) => isLiving(x.phase) && s.met[x.id]).map((x) => s.met[x.id].title);
       parts.push(`We were there ${spanWords(s.tGal - mem.last)} ago${then.length ? `; ${then.join(' and ')} lived there then` : ''}.`);
     }
-    this.text(parts.join(' '));
-    s.plot = sys.ref.id;
-    this.dim(`"plot ${arg}" for the cost of going.`);
+    return parts.join(' ');
   }
 
   /** What a leg would cost and leave us with. */
@@ -1467,6 +1559,7 @@ export class Game {
       c.fuelAfter < 0
         ? ` ${pad(label, 9)}  not enough fuel`
         : ` ${pad(label, 9)}${lpad(`${Math.round(c.fuelAfter)}%`, 6)}${lpad(`${Math.round(c.shieldAfter)}%`, 8)}${lpad(`${Math.max(0, Math.round(c.hullAfter))}%`, 7)}`;
+    this.text(this.telescope(sys, hard.dist));
     this.pre([
       ` to ${this.nameOf(sys.ref.id)} · ${ly(hard.dist)} ly · gas ${Galaxy.gasWord(hard.gasMean)}`,
       '',
@@ -1709,9 +1802,12 @@ export class Game {
       ` tanks ${level(s, 'tanks')} burn-yr · optics x${level(s, 'optics')}`,
       ` crews ${s.crews.length}`,
       ` cruise here: gamma ${cruiseGamma(this.drive, 1, n).toFixed(1)} in ${Galaxy.gasWord(n)} gas`,
-      ` ${s.stats.systems} systems · ${s.stats.jumps} jumps · ${Math.round(s.stats.ly)} ly`,
+      ` ${s.stats.systems} ${s.stats.systems === 1 ? 'system' : 'systems'} · ${s.stats.jumps} ${s.stats.jumps === 1 ? 'jump' : 'jumps'} · ${Math.round(s.stats.ly)} ly`,
+      '',
+      ...this.refitLines(),
     ];
     this.pre(lines);
+    this.dim('Knowledge in the Archive unlocks a refit; materials and a crew\'s time pay for it. "refit engine" starts one.');
     if (s.ship.relics.length) this.text(`In the hold, under lock: ${s.ship.relics.map(relicLabel).join('; ')}.`);
   }
 
@@ -1726,7 +1822,7 @@ export class Game {
     return 'ready';
   }
 
-  private refits() {
+  private refitLines(): string[] {
     const s = this.state;
     const lines = [' refit    now > next   needs'];
     for (const track of Object.keys(REFITS) as RefitTrack[]) {
@@ -1742,9 +1838,7 @@ export class Game {
       lines.push(` ${pad(track, 8)} ${pad(`${info.levels[lv]} > ${info.levels[lv + 1]}`, 12)} ${flag}`);
       if (state === 'ready') lines.push(`          costs ${cost.materials} mat, ${cost.days} days`);
     }
-    lines.push('', ` archive ${s.ship.archive} · materials ${Math.round(s.ship.materials)}`);
-    this.pre(lines);
-    this.dim('Knowledge in the Archive unlocks a refit; materials and a crew\'s time pay for it. "refit engine" starts one.');
+    return lines;
   }
 
   private refit(arg: string) {
@@ -1813,8 +1907,8 @@ export class Game {
       '',
       ' here',
       '  sweep       first look at this system',
-      '  look        the system table again (map)',
-      '  ops         crews and the work on offer',
+      '  look        the system, and the crews',
+      '  ops         the work on offer here',
       '  scoop N     fuel from a giant (0 = star)',
       '  ice N       rebuild the shield',
       '  mine N      materials for the hold',
@@ -1827,14 +1921,14 @@ export class Game {
       '  chart       what stands out nearby',
       '  chart close the nearest stars',
       '  chart far   the wider sky',
-      '  scope N     what the telescope sees',
-      '  plot N      what going there costs',
+      '  plot N      what is there, and the cost',
+      '              (a name works as well)',
       '  burn        go, at full thrust',
       '  burn eco    go gently: frugal and slow',
       ' the ship',
       '  ask         what the Mind thinks',
-      '  ship        condition and clocks',
-      '  refits      upgrades, and "refit X"',
+      '  ship        condition, clocks, refits',
+      '  refit X     start a refit',
       '  log, finds  journal and catalogue',
       '  name X      name this system',
     ]);

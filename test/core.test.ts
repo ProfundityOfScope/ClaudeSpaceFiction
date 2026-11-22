@@ -96,7 +96,7 @@ test('fixed-width blocks fit a phone', () => {
   for (let hop = 0; hop < 6; hop++) commands.push('chart', `plot ${1 + (hop % 3)}`, 'burn', 'sweep', 'look', 'ops', 'chart close', 'chart far', 'gas', 'finds', 'ship');
   for (const c of commands) {
     for (const out of g.exec(c)) {
-      if (out.k !== 'pre') continue;
+      if (out.k !== 'pre' && out.k !== 'map') continue;
       for (const line of out.s.split('\n')) assert.ok(line.length <= WIDTH, `"${c}" printed a ${line.length}-column line: ${line}`);
     }
   }
@@ -239,4 +239,59 @@ test('a convex hull keeps the outermost points, and draws as an edge with an ins
   drawPolygon([{ x: -20, y: -20 }, { x: 6, y: -20 }, { x: 6, y: 40 }, { x: -20, y: 40 }], 12, off);
   assert.equal(off[5 * 12 + 2], 1);
   assert.equal(off[5 * 12 + 9], 0);
+});
+
+test('plot says what is there and what it costs, and takes a name as well as a number', () => {
+  const g = Game.fresh();
+  g.exec('sweep');
+  g.exec('chart');
+  const [first, second] = g.state.chart;
+  const byNumber = g.exec('plot 1');
+  assert.equal(g.state.plot, first);
+  assert.match(said(byNumber), /light-years off/, 'what the telescope sees');
+  assert.match(said(byNumber), /arriving +fuel +shield +hull/, 'and what the trip costs');
+  assert.deepEqual(g.exec('scope 1').slice(1), g.exec('plot 1').slice(1), '"scope" is the same command now');
+  // By name, whole or in part, whatever chart was last on screen.
+  const name = generateSystem(galaxy, galaxy.ref(second)!).name;
+  g.exec('chart far');
+  g.exec(`plot ${name.toLowerCase()}`);
+  assert.equal(g.state.plot, second);
+  assert.match(said(g.exec('plot ember')), /stars in sight match "ember"/);
+  assert.match(said(g.exec('plot zzzz')), /No star in sight is called "zzzz"/);
+  // A name needs no chart at all.
+  const cold = Game.fresh();
+  cold.exec(`plot ${name}`);
+  assert.equal(cold.state.plot, second);
+  assert.match(said(cold.exec('plot 1')), /Pull up the chart first/);
+});
+
+test('each chart says which of its stars the tanks can reach', () => {
+  const g = Game.fresh();
+  g.exec('sweep');
+  assert.match(said(g.exec('chart close')), /On these tanks a hard burn reaches all of them\./);
+  g.state.ship.fuel = 0.12;
+  const thin = said(g.exec('chart'));
+  assert.match(thin, /On these tanks: /);
+  assert.match(thin, /out of reach|only economy reaches/);
+  g.state.ship.fuel = 0;
+  assert.match(said(g.exec('chart far')), /none of them is in reach, even on economy/);
+});
+
+test('look shows the crews and where they are; ship includes the refits', () => {
+  const g = Game.fresh();
+  g.exec('sweep');
+  const giant = g.here.bodies.find((b) => b.fuel > 0)!;
+  g.exec(`scoop ${giant.n}`);
+  g.exec('survey');
+  const look = g.exec('look').find((o) => o.k === 'pre')!.s.split('\n');
+  assert.ok(look.some((l) => l.startsWith(' crew 1  scoop')), 'crew 1 is listed with its job');
+  assert.ok(look.some((l) => l.startsWith(' crew 2  survey')));
+  // The tag sits under the body the crew is working.
+  const numbers = look[1];
+  const tags = look[2];
+  assert.equal(tags.indexOf('c1'), numbers.indexOf(String(giant.n)), 'c1 is under the giant');
+  const ship = said(g.exec('ship'));
+  assert.match(ship, /refit +now > next +needs/);
+  assert.match(ship, /engine +20 > 32/);
+  assert.deepEqual(g.exec('refits').slice(1), g.exec('ship').slice(1), '"refits" is the same command now');
 });
