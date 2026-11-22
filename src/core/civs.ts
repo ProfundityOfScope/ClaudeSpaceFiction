@@ -322,6 +322,14 @@ export class Cultures {
     return -1;
   }
 
+  /** Does a spreading culture have something living at a system in a given year: its home, or an outpost? */
+  holds(c: Culture, sys: StarSystem, year: number): boolean {
+    if (!c.reach || year < c.born || year >= c.born + c.life) return false;
+    if (c.home.id === sys.ref.id) return true;
+    const held = tenure(c, Math.hypot(c.home.x - sys.ref.x, c.home.y - sys.ref.y));
+    return held !== null && year >= held[0] && year < held[1] && this.outpostBody(c, sys) >= 0;
+  }
+
   /** Who is at a system in a given year: the living, what the dead left, and whose space it is. */
   presence(sys: StarSystem, year: number): Presence {
     const { x, y, id } = sys.ref;

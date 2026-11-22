@@ -9,6 +9,7 @@ import { findStart } from '../src/core/state.ts';
 import { WIDTH } from '../src/core/format.ts';
 import { FEATURES } from '../src/core/features.ts';
 import { LINES } from '../src/core/mind.ts';
+import { convexHull, drawPolygon, insidePolygon, paddedHull } from '../src/core/hull.ts';
 
 const galaxy = new Galaxy(DEMO);
 const start = findStart(galaxy);
@@ -176,7 +177,7 @@ test('every chart carries a map for the page to draw, and the same map in charac
     const numbers = stars.filter((star) => star.n).map((star) => star.n);
     assert.ok(numbers.length > 0, 'some stars are numbered');
     assert.equal(new Set(numbers).size, numbers.length, 'and no number is used twice');
-    for (const i of held ?? []) assert.ok(Number.isInteger(i) && i >= 0 && i < size * size);
+    if (held !== undefined) assert.match(held, new RegExp(`^[012]{${size * size}}$`));
     assert.equal(inner, command === 'chart close' ? undefined : size / 8, 'wider charts box the next one in');
     assert.ok(item.s.includes('@'), 'the character map is still there for a terminal');
   }
@@ -216,4 +217,26 @@ test('the three charts nest, and each lists what suits its scale', () => {
   g.exec('plot 1');
   assert.equal(g.state.plot, mid.ids[0]);
   assert.match(g.exec('chart sideways').map((o) => o.s).join(' '), /Which chart\?/);
+});
+
+test('a convex hull keeps the outermost points, and draws as an edge with an inside', () => {
+  const square = [{ x: 2, y: 2 }, { x: 8, y: 2 }, { x: 8, y: 8 }, { x: 2, y: 8 }];
+  const hull = convexHull([...square, { x: 5, y: 5 }, { x: 3, y: 6 }, { x: 8, y: 5 }]);
+  assert.equal(hull.length, 4, 'points inside and along an edge are dropped');
+  for (const corner of square) assert.ok(hull.some((p) => p.x === corner.x && p.y === corner.y));
+  assert.ok(insidePolygon(hull, 5, 5) && !insidePolygon(hull, 9, 5));
+  assert.equal(convexHull([{ x: 1, y: 1 }]).length, 1);
+  // With a margin, every original point is strictly inside.
+  const padded = paddedHull(square, 1);
+  for (const corner of square) assert.ok(insidePolygon(padded, corner.x, corner.y));
+  const grid = new Uint8Array(12 * 12);
+  drawPolygon(padded, 12, grid);
+  assert.equal(grid[5 * 12 + 5], 1, 'the middle is inside');
+  assert.equal(grid[0], 0, 'the far corner is outside');
+  assert.ok(grid.includes(2), 'and there is an edge');
+  // A shape that runs off the grid is drawn where it can be and nowhere else.
+  const off = new Uint8Array(12 * 12);
+  drawPolygon([{ x: -20, y: -20 }, { x: 6, y: -20 }, { x: 6, y: 40 }, { x: -20, y: 40 }], 12, off);
+  assert.equal(off[5 * 12 + 2], 1);
+  assert.equal(off[5 * 12 + 9], 0);
 });

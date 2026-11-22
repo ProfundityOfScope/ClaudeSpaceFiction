@@ -1605,8 +1605,8 @@ input, textarea {
   ];
   var clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
   function pickStar(ref, rng) {
-    const mix2 = ref.cluster ? ref.cluster.old ? OLD_MIX2 : YOUNG_MIX2 : FIELD_MIX;
-    return rng.weighted(mix2[ref.stratum]);
+    const mix3 = ref.cluster ? ref.cluster.old ? OLD_MIX2 : YOUNG_MIX2 : FIELD_MIX;
+    return rng.weighted(mix3[ref.stratum]);
   }
   function zoneTable(star, au, warm, snow, giants) {
     if (STARS[star].remnant) return { belt: 35, scorched: 20, dwarf: 20, gas: 8, ice: 17 };
@@ -2198,6 +2198,13 @@ input, textarea {
       }
       return -1;
     }
+    /** Does a spreading culture have something living at a system in a given year: its home, or an outpost? */
+    holds(c, sys, year) {
+      if (!c.reach || year < c.born || year >= c.born + c.life) return false;
+      if (c.home.id === sys.ref.id) return true;
+      const held = tenure(c, Math.hypot(c.home.x - sys.ref.x, c.home.y - sys.ref.y));
+      return held !== null && year >= held[0] && year < held[1] && this.outpostBody(c, sys) >= 0;
+    }
     /** Who is at a system in a given year: the living, what the dead left, and whose space it is. */
     presence(sys, year) {
       const { x, y, id } = sys.ref;
@@ -2274,6 +2281,72 @@ input, textarea {
     }
   };
   var HEARING = CIV.LOUD.height * CIV.LOUD_REACH;
+
+  // src/core/hull.ts
+  function convexHull(points) {
+    const p = [...points].sort((a, b) => a.x - b.x || a.y - b.y);
+    if (p.length < 3) return p;
+    const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+    const half = (list) => {
+      const out = [];
+      for (const q of list) {
+        while (out.length >= 2 && cross(out[out.length - 2], out[out.length - 1], q) <= 0) out.pop();
+        out.push(q);
+      }
+      return out.slice(0, -1);
+    };
+    return half(p).concat(half(p.reverse()));
+  }
+  function paddedHull(points, margin) {
+    const ring = Array.from({ length: 12 }, (_, i) => ({ x: Math.cos(i / 12 * 2 * Math.PI), y: Math.sin(i / 12 * 2 * Math.PI) }));
+    return convexHull(convexHull(points).flatMap((p) => ring.map((r) => ({ x: p.x + margin * r.x, y: p.y + margin * r.y }))));
+  }
+  function insidePolygon(polygon, x, y) {
+    let inside = false;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+      const a = polygon[i];
+      const b = polygon[j];
+      if (a.y > y !== b.y > y && x < (b.x - a.x) * (y - a.y) / (b.y - a.y) + a.x) inside = !inside;
+    }
+    return inside;
+  }
+  function drawPolygon(polygon, size, grid) {
+    if (!polygon.length) return;
+    const clampCell = (v) => Math.min(size - 1, Math.max(0, Math.floor(v)));
+    const xs = polygon.map((p) => p.x);
+    const ys = polygon.map((p) => p.y);
+    if (Math.max(...xs) < 0 || Math.max(...ys) < 0 || Math.min(...xs) >= size || Math.min(...ys) >= size) return;
+    for (let r = clampCell(Math.min(...ys)); r <= clampCell(Math.max(...ys)); r++) {
+      for (let c = clampCell(Math.min(...xs)); c <= clampCell(Math.max(...xs)); c++) {
+        if (!grid[r * size + c] && insidePolygon(polygon, c + 0.5, r + 0.5)) grid[r * size + c] = 1;
+      }
+    }
+    polygon.forEach((from, i) => {
+      const to = polygon[(i + 1) % polygon.length];
+      let x = Math.floor(from.x);
+      let y = Math.floor(from.y);
+      const x1 = Math.floor(to.x);
+      const y1 = Math.floor(to.y);
+      const dx = Math.abs(x1 - x);
+      const dy = -Math.abs(y1 - y);
+      const sx = x < x1 ? 1 : -1;
+      const sy = y < y1 ? 1 : -1;
+      let err = dx + dy;
+      for (let guard = 0; guard < 1e5; guard++) {
+        if (x >= 0 && y >= 0 && x < size && y < size) grid[y * size + x] = 2;
+        if (x === x1 && y === y1) break;
+        const e2 = 2 * err;
+        if (e2 >= dy) {
+          err += dy;
+          x += sx;
+        }
+        if (e2 <= dx) {
+          err += dx;
+          y += sy;
+        }
+      }
+    });
+  }
 
   // src/core/travel.ts
   function cruiseGamma(drive, thrustFraction, n) {
@@ -3873,7 +3946,7 @@ input, textarea {
     // ---- the chart and travel ----------------------------------------------
     /**
      * The numbers behind a map: gas in a square grid around the ship, the stars
-     * that fall inside it, and the edge of any space somebody holds. The page
+     * that fall inside it, and any space somebody holds. The page
      * draws these; a terminal shows the character map instead.
      */
     picture(zoom, radius, stars) {
@@ -3903,70 +3976,49 @@ input, textarea {
           signal: signal || void 0
         });
       }
-      const held = this.heldEdge(radius);
       return {
         size,
         radius,
         zoom,
         gas,
         stars: placed,
-        held: held.length ? held : void 0,
+        held: this.heldSpace(radius),
         inner: zoom === "close" ? void 0 : size / 2 / ZOOM_STEP
       };
     }
     /**
-     * The edge of the space other people hold, as cells of a map `radius` ly
-     * across: a contour drawn round the systems each spreading culture has
-     * something living in. We only know this for cultures we have met, or whose
+     * The space other people hold, for a map `radius` ly across: for each
+     * spreading culture, the convex hull of the systems it has something living
+     * in, with a little margin. One character per cell: '0' outside, '1' inside,
+     * '2' on the edge. We only know this for cultures we have met, or whose
      * home we can hear, and only as the light shows it.
      */
-    heldEdge(radius) {
+    heldSpace(radius) {
       const s = this.state;
       const here = this.here.ref;
       const size = MAP_SIZE;
-      const cell = 2 * radius / size;
-      const spread = Math.max(4, 1.3 * cell);
-      const reachOut = radius * Math.SQRT2 + 3 * spread;
-      const known = new Set(Object.keys(s.met).filter((id) => id.startsWith("R")));
+      const perLy = size / (2 * radius);
+      const known = /* @__PURE__ */ new Map();
+      for (const id of Object.keys(s.met)) {
+        const c = id.startsWith("R") ? this.cultures.byId(id) : null;
+        if (c) known.set(id, c);
+      }
       for (const { site } of this.cultures.signals(here.x, here.y, s.tGal, HEARING)) {
-        if (site.kind === "home" && site.culture.reach) known.add(site.culture.id);
+        if (site.kind === "home" && site.culture.reach) known.set(site.culture.id, site.culture);
       }
-      if (!known.size) return [];
-      const points = /* @__PURE__ */ new Map();
-      for (const { ref, dist } of this.galaxy.within(here.x, here.y, reachOut)) {
-        for (const site of this.cultures.presence(this.systemAt(ref), s.tGal - dist).sites) {
-          if (!site.alive || !known.has(site.culture.id)) continue;
-          const list = points.get(site.culture.id) ?? [];
-          list.push({ x: ((ref.x - here.x) / radius + 1) * (size / 2), y: (1 - (ref.y - here.y) / radius) * (size / 2) });
-          points.set(site.culture.id, list);
+      const grid = new Uint8Array(size * size);
+      for (const c of known.values()) {
+        const reach = c.reach.radius;
+        if (Math.hypot(c.home.x - here.x, c.home.y - here.y) - reach > radius * Math.SQRT2 + 3) continue;
+        const points = [];
+        for (const { ref } of this.galaxy.within(c.home.x, c.home.y, reach)) {
+          const light = Math.hypot(ref.x - here.x, ref.y - here.y);
+          if (!this.cultures.holds(c, this.systemAt(ref), s.tGal - light)) continue;
+          points.push({ x: ((ref.x - here.x) / radius + 1) * (size / 2), y: (1 - (ref.y - here.y) / radius) * (size / 2) });
         }
+        if (points.length) drawPolygon(paddedHull(points, Math.max(1.5 * perLy, 1.5)), size, grid);
       }
-      const edge = /* @__PURE__ */ new Set();
-      const k = spread / cell;
-      const far = 3 * k;
-      for (const list of points.values()) {
-        const inside = new Uint8Array((size + 2) * (size + 2));
-        for (let r = -1; r <= size; r++) {
-          for (let c = -1; c <= size; c++) {
-            let sum = 0;
-            for (const p of list) {
-              const dx = c + 0.5 - p.x;
-              const dy = r + 0.5 - p.y;
-              if (Math.abs(dx) > far || Math.abs(dy) > far) continue;
-              sum += Math.exp(-(dx * dx + dy * dy) / (k * k));
-              if (sum >= 0.5) break;
-            }
-            if (sum >= 0.5) inside[(r + 1) * (size + 2) + c + 1] = 1;
-          }
-        }
-        const at = (r, c) => inside[(r + 1) * (size + 2) + c + 1];
-        for (let r = 0; r < size; r++) {
-          for (let c = 0; c < size; c++) {
-            if (at(r, c) && !(at(r - 1, c) && at(r + 1, c) && at(r, c - 1) && at(r, c + 1))) edge.add(r * size + c);
-          }
-        }
-      }
-      return [...edge].sort((a, b) => a - b);
+      return grid.some((v) => v > 0) ? Array.from(grid).join("") : void 0;
     }
     /** The same map in characters, for a terminal: 41 columns by 13 rows. */
     sketch(zoom, radius, stars) {
@@ -4568,7 +4620,9 @@ input, textarea {
     const hex = /^#([0-9a-f]{6})$/i.exec(raw)?.[1] ?? "808080";
     return [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
   }
-  var blend = (a, b, t) => `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(",")})`;
+  var mix2 = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
+  var css = (c) => `rgb(${c.map(Math.round).join(",")})`;
+  var blend = (a, b, t) => css(mix2(a, b, t));
   function drawMap(map) {
     const canvas = document.createElement("canvas");
     canvas.width = canvas.height = map.size;
@@ -4581,8 +4635,12 @@ input, textarea {
       ctx.fillStyle = color;
       for (const [x, y] of points) ctx.fillRect(x, y, 1, 1);
     };
-    const haze = Array.from({ length: 36 }, (_, i) => blend(bg, token("--dim"), 0.78 * (i / 35) ** 1.15));
-    for (let i = 0; i < map.gas.length; i++) cells(haze[parseInt(map.gas[i], 36)], [[i % map.size, Math.floor(i / map.size)]]);
+    const voice = token("--ok");
+    const haze = Array.from({ length: 36 }, (_, i) => mix2(bg, token("--dim"), 0.78 * (i / 35) ** 1.15));
+    for (let i = 0; i < map.gas.length; i++) {
+      const shade2 = haze[parseInt(map.gas[i], 36)];
+      cells(css(map.held && map.held[i] !== "0" ? mix2(shade2, voice, 0.16) : shade2), [[i % map.size, Math.floor(i / map.size)]]);
+    }
     if (map.inner) {
       const lo = Math.round(map.size / 2 - map.inner);
       const hi = Math.round(map.size / 2 + map.inner) - 1;
@@ -4590,8 +4648,11 @@ input, textarea {
       for (let i = lo; i <= hi; i += 2) points.push([i, lo], [i, hi], [lo, i], [hi, i]);
       cells(blend(bg, ink, 0.3), points);
     }
-    const voice = token("--ok");
-    cells(blend(bg, voice, 0.7), (map.held ?? []).map((i) => [i % map.size, Math.floor(i / map.size)]));
+    if (map.held) {
+      const edge = [];
+      for (let i = 0; i < map.held.length; i++) if (map.held[i] === "2") edge.push([i % map.size, Math.floor(i / map.size)]);
+      cells(blend(bg, voice, 0.7), edge);
+    }
     const m = map.size / 2;
     const taken = [[m - 2, m - 2, m + 2, m + 2]];
     const numbered = map.stars.filter((star) => star.n).sort((a, b) => (a.n ?? 0) - (b.n ?? 0));

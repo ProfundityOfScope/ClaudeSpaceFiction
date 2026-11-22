@@ -63,7 +63,9 @@ function token(name: string): Rgb {
   return [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16)) as Rgb;
 }
 
-const blend = (a: Rgb, b: Rgb, t: number) => `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(',')})`;
+const mix = (a: Rgb, b: Rgb, t: number) => a.map((v, i) => v + (b[i] - v) * t) as Rgb;
+const css = (c: Rgb) => `rgb(${c.map(Math.round).join(',')})`;
+const blend = (a: Rgb, b: Rgb, t: number) => css(mix(a, b, t));
 
 /** Draw a map one cell to a pixel; the page scales it up without smoothing, which keeps it blocky. */
 function drawMap(map: MapData): HTMLCanvasElement | null {
@@ -79,9 +81,13 @@ function drawMap(map: MapData): HTMLCanvasElement | null {
     for (const [x, y] of points) ctx.fillRect(x, y, 1, 1);
   };
 
-  // Gas as a grey haze, in 36 even steps: the thicker the gas, the lighter the grey.
-  const haze = Array.from({ length: 36 }, (_, i) => blend(bg, token('--dim'), 0.78 * (i / 35) ** 1.15));
-  for (let i = 0; i < map.gas.length; i++) cells(haze[parseInt(map.gas[i], 36)], [[i % map.size, Math.floor(i / map.size)]]);
+  // Gas as a grey haze in 36 even steps, heavier where the gas is thicker. Space somebody holds is tinted over it.
+  const voice = token('--ok');
+  const haze = Array.from({ length: 36 }, (_, i) => mix(bg, token('--dim'), 0.78 * (i / 35) ** 1.15));
+  for (let i = 0; i < map.gas.length; i++) {
+    const shade = haze[parseInt(map.gas[i], 36)];
+    cells(css(map.held && map.held[i] !== '0' ? mix(shade, voice, 0.16) : shade), [[i % map.size, Math.floor(i / map.size)]]);
+  }
 
   // The next zoom in, as a dotted box, so that one view can be found on another.
   if (map.inner) {
@@ -92,9 +98,12 @@ function drawMap(map: MapData): HTMLCanvasElement | null {
     cells(blend(bg, ink, 0.3), points);
   }
 
-  // The edge of space somebody holds, under the stars.
-  const voice = token('--ok');
-  cells(blend(bg, voice, 0.7), (map.held ?? []).map((i) => [i % map.size, Math.floor(i / map.size)]));
+  // The edge of held space, under the stars.
+  if (map.held) {
+    const edge: number[][] = [];
+    for (let i = 0; i < map.held.length; i++) if (map.held[i] === '2') edge.push([i % map.size, Math.floor(i / map.size)]);
+    cells(blend(bg, voice, 0.7), edge);
+  }
 
   // Stars: faint unnumbered ones first, so the numbered ones sit on top of them.
   const m = map.size / 2;

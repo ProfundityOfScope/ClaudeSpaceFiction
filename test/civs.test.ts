@@ -243,7 +243,7 @@ test('unread ruins near enough to resolve are flagged on the chart, until they a
   if (row) assert.doesNotMatch(row, /!\^?$/);
 });
 
-test('space somebody holds is drawn as an edge round their systems, once we know of them', () => {
+test('space somebody holds is drawn as a hull round their systems, once we know of them', () => {
   const cc = DEMO.coarse;
   let reach: Culture | null = null;
   for (let i = -3; i <= 3 && !reach; i++) {
@@ -261,7 +261,24 @@ test('space somebody holds is drawn as an edge round their systems, once we know
   g.state.ship.levels.hull = 10;
   const inside = galaxy.within(reach.home.x, reach.home.y, 5).find((s) => s.dist > 0)!;
   fly(g, inside.ref.id);
-  const map = g.exec('chart').find((o) => o.k === 'map')!.map!;
-  assert.ok(map.held && map.held.length > 8, 'their home can be heard from here, so their space is drawn');
-  assert.equal(new Set(map.held).size, map.held.length);
+  for (const command of ['chart close', 'chart', 'chart far']) {
+    const map = g.exec(command).find((o) => o.k === 'map')!.map!;
+    assert.ok(map.held, `${command}: their home can be heard from here, so their space is drawn`);
+    const cell = (ref: SysRef) => {
+      const c = Math.floor(((ref.x - inside.ref.x) / map.radius + 1) * (map.size / 2));
+      const r = Math.floor((1 - (ref.y - inside.ref.y) / map.radius) * (map.size / 2));
+      return c >= 0 && r >= 0 && c < map.size && r < map.size ? map.held![r * map.size + c] : null;
+    };
+    // Every system of theirs that is on the map lies inside the shape, and the shape is not the whole sky.
+    let theirs = 0;
+    for (const { ref, dist } of galaxy.within(inside.ref.x, inside.ref.y, map.radius)) {
+      if (!cultures.holds(reach, cultures.system(ref), g.state.tGal - dist)) continue;
+      const at = cell(ref);
+      if (at === null) continue;
+      theirs++;
+      assert.notEqual(at, '0', `${command}: ${ref.id} is theirs and lies inside`);
+    }
+    assert.ok(theirs > 0);
+    if (command === 'chart far') assert.ok(map.held.includes('0') && map.held.includes('1') && map.held.includes('2'), 'outside, inside and edge all show');
+  }
 });

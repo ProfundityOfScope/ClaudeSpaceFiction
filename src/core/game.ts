@@ -10,6 +10,7 @@ import { STARS, bodyLabel, bodyRef, generateSystem, renderFeature, starLine, typ
 import { FEATURES, FEATURE_BY_ID, RARITY_WORD, type FeatureDef } from './features.ts';
 import { Cultures, HEARING, frontier, isLiving, type Culture, type Phase, type Presence, type Site } from './civs.ts';
 import { relicFrom, relicLabel, ruinHint, ruinText, settledText } from './cultures.ts';
+import { drawPolygon, paddedHull, type Point } from './hull.ts';
 import { cruiseGamma, planLeg, type Leg } from './travel.ts';
 import { GUIDE, fill, speak } from './mind.ts';
 import { K, Stream, mix, strHash } from './rng.ts';
@@ -41,8 +42,8 @@ export interface MapData {
    */
   gas: string;
   stars: MapStar[];
-  /** Cells on the edge of space somebody holds, as indices into the grid. */
-  held?: number[];
+  /** Space somebody holds, one character per cell like `gas`: '0' outside, '1' inside, '2' on its edge. Absent where nobody we know of holds anything. */
+  held?: string;
   /** Half the width, in cells, of the next zoom in: drawn as a faint box, so the views can be related. */
   inner?: number;
 }
@@ -1151,7 +1152,7 @@ export class Game {
 
   /**
    * The numbers behind a map: gas in a square grid around the ship, the stars
-   * that fall inside it, and the edge of any space somebody holds. The page
+   * that fall inside it, and any space somebody holds. The page
    * draws these; a terminal shows the character map instead.
    */
   private picture(zoom: Zoom, radius: number, stars: Pin[]): MapData {
@@ -1181,74 +1182,53 @@ export class Game {
         signal: signal || undefined,
       });
     }
-    const held = this.heldEdge(radius);
     return {
       size,
       radius,
       zoom,
       gas,
       stars: placed,
-      held: held.length ? held : undefined,
+      held: this.heldSpace(radius),
       inner: zoom === 'close' ? undefined : size / 2 / ZOOM_STEP,
     };
   }
 
   /**
-   * The edge of the space other people hold, as cells of a map `radius` ly
-   * across: a contour drawn round the systems each spreading culture has
-   * something living in. We only know this for cultures we have met, or whose
+   * The space other people hold, for a map `radius` ly across: for each
+   * spreading culture, the convex hull of the systems it has something living
+   * in, with a little margin. One character per cell: '0' outside, '1' inside,
+   * '2' on the edge. We only know this for cultures we have met, or whose
    * home we can hear, and only as the light shows it.
    */
-  private heldEdge(radius: number): number[] {
+  private heldSpace(radius: number): string | undefined {
     const s = this.state;
     const here = this.here.ref;
     const size = MAP_SIZE;
-    const cell = (2 * radius) / size;
-    // Each held system counts for a few light-years around it; neighbours merge into one shape.
-    const spread = Math.max(4, 1.3 * cell);
-    const reachOut = radius * Math.SQRT2 + 3 * spread;
-    const known = new Set(Object.keys(s.met).filter((id) => id.startsWith('R')));
+    const perLy = size / (2 * radius);
+    const known = new Map<string, Culture>();
+    for (const id of Object.keys(s.met)) {
+      const c = id.startsWith('R') ? this.cultures.byId(id) : null;
+      if (c) known.set(id, c);
+    }
     for (const { site } of this.cultures.signals(here.x, here.y, s.tGal, HEARING)) {
-      if (site.kind === 'home' && site.culture.reach) known.add(site.culture.id);
+      if (site.kind === 'home' && site.culture.reach) known.set(site.culture.id, site.culture);
     }
-    if (!known.size) return [];
-    const points = new Map<string, { x: number; y: number }[]>();
-    for (const { ref, dist } of this.galaxy.within(here.x, here.y, reachOut)) {
-      for (const site of this.cultures.presence(this.systemAt(ref), s.tGal - dist).sites) {
-        if (!site.alive || !known.has(site.culture.id)) continue;
-        const list = points.get(site.culture.id) ?? [];
+    const grid = new Uint8Array(size * size);
+    for (const c of known.values()) {
+      // The hull is set by their outermost systems, wherever those are, so look at everything they could hold. Skip those too far off to reach the map at all.
+      const reach = c.reach!.radius;
+      if (Math.hypot(c.home.x - here.x, c.home.y - here.y) - reach > radius * Math.SQRT2 + 3) continue;
+      const points: Point[] = [];
+      for (const { ref } of this.galaxy.within(c.home.x, c.home.y, reach)) {
+        const light = Math.hypot(ref.x - here.x, ref.y - here.y);
+        if (!this.cultures.holds(c, this.systemAt(ref), s.tGal - light)) continue;
         // In cells, from the top left.
-        list.push({ x: ((ref.x - here.x) / radius + 1) * (size / 2), y: (1 - (ref.y - here.y) / radius) * (size / 2) });
-        points.set(site.culture.id, list);
+        points.push({ x: ((ref.x - here.x) / radius + 1) * (size / 2), y: (1 - (ref.y - here.y) / radius) * (size / 2) });
       }
+      // A margin of a light-year and a half, and never so little that a single system vanishes on a wide map.
+      if (points.length) drawPolygon(paddedHull(points, Math.max(1.5 * perLy, 1.5)), size, grid);
     }
-    const edge = new Set<number>();
-    const k = spread / cell;
-    const far = 3 * k;
-    for (const list of points.values()) {
-      // Inside wherever the summed influence of their systems is high enough. One padded cell all round, so shapes that run off the map are not closed at its edge.
-      const inside = new Uint8Array((size + 2) * (size + 2));
-      for (let r = -1; r <= size; r++) {
-        for (let c = -1; c <= size; c++) {
-          let sum = 0;
-          for (const p of list) {
-            const dx = c + 0.5 - p.x;
-            const dy = r + 0.5 - p.y;
-            if (Math.abs(dx) > far || Math.abs(dy) > far) continue;
-            sum += Math.exp(-(dx * dx + dy * dy) / (k * k));
-            if (sum >= 0.5) break;
-          }
-          if (sum >= 0.5) inside[(r + 1) * (size + 2) + c + 1] = 1;
-        }
-      }
-      const at = (r: number, c: number) => inside[(r + 1) * (size + 2) + c + 1];
-      for (let r = 0; r < size; r++) {
-        for (let c = 0; c < size; c++) {
-          if (at(r, c) && !(at(r - 1, c) && at(r + 1, c) && at(r, c - 1) && at(r, c + 1))) edge.add(r * size + c);
-        }
-      }
-    }
-    return [...edge].sort((a, b) => a - b);
+    return grid.some((v) => v > 0) ? Array.from(grid).join('') : undefined;
   }
 
   /** The same map in characters, for a terminal: 41 columns by 13 rows. */
