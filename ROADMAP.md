@@ -8,10 +8,10 @@ A text prototype of the game Lightspeed: a forever cruise on a relativistic worl
 
 ## Where things stand
 
-- `main` = slice 1, the video renderer, onboarding and tuning, and the pixel maps. `v0.1.0` tags slice 1 (commit 8461d87). Nothing since has been tagged; suggest `v0.1.1` or fold it into `v0.2.0`.
+- `main` = slice 1, onboarding and tuning, the charts, slice 2 step 1 (other people, ruins, relics) and the media folder. `v0.1.0` tags slice 1 (commit 8461d87). Suggested to the owner: tag today's `main` `v0.1.1` if they want a marker, and keep `v0.2.0` for when contact and trade are in.
 - Public page: GitHub Pages serves `main` / `docs/`. Dev preview: a private Artifact named "Lightspeed", republished from `dist/artifact.html` (find it in the artifact list; pass its URL to update it in place).
-- Current branch of work: `claude/civilisations` (slice 2). Step 1 of three is built and in a pull request: cultures exist and can be seen, ruins can be read, relics can be carried. **Stop here** until the owner has judged how busy the galaxy feels; then step 2 (contact and consequences), then step 3 (trade).
-- Not yet heard: how the onboarding, the economy burn and the gas views played. Ask.
+- Current branch of work: `claude/isru`, materials. The owner pulled it ahead of contact so that cultures can want different things. Its own pull request, then slice 2 step 2 (contact), then step 3 (trade).
+- Not yet heard: how the onboarding, the economy burn, the three charts and the reach line played. Ask.
 
 ## What the owner wants (their steers, in order of weight)
 
@@ -84,12 +84,41 @@ History, because it explains the shape of the code. First a 64-cell picture for 
 - **The picture's data is still made.** Every chart item carries `MapData` (96 cells a side: gas in 36 shades, stars, `held` space as a hull, `inner` box for the next zoom in). Nothing draws it now; it is there because it is exactly what an app's map would draw, and the tests keep it honest. The page's drawing code (`drawMap`) was removed in the commit that made this change and is in the history if wanted.
 - **Do not bring the picture back, or make any map interactive, without being asked.**
 
-### ISRU improvements: thinking so far
+### Materials (ISRU): what the owner decided, and the design
 
-- A first sketch, which the owner found too thin: three special materials as by-products of existing work. Metals from rich belts, isotopes from ice giants, exotics from the winds of unusual stars (giants, remnants, supergiants). Early refits need the local two; later levels need exotics, so they need a journey to a bright star on the chart.
-- What "more evolved" probably means: more kinds of place and material, extraction that differs by body (not one rate table), difficulty and yield that vary, possibly processing steps, and ore that runs out so a system is worked and then left.
-- Keep: no pile of new verbs if by-products and body properties can carry it; the chart's brightness tiers as the natural ladder of difficulty; refits gated by where the ship has been, not by waiting.
-- Ideas the owner offered that fit here or in trade: very rare finds that give temporary bonuses to ship systems, and items that can be sold.
+The owner chose the middle of three sizes offered ("places matter"), with these calls:
+
+- **Five materials**, not six: silicates are folded into metals.
+- **Seams thin out**, but not fast: it is still a whole system. Enough to be some incentive to move on.
+- **A living spacefaring culture has already thinned its own system's seams**, to various extents.
+- **Hot work** wears the ship. Not common, but something to be aware of.
+- Its own branch and pull request, before contact.
+
+The five, and where they come from:
+
+| Material | Short | Comes from | Wanted for |
+|---|---|---|---|
+| Volatiles | vol | comets, ice worlds, dwarfs: beyond the snow line | crews refit; trade |
+| Metals | met | belts, rocky and scorched worlds; richer where [Fe/H] is high | repairs, hold, tanks, hull |
+| Carbon | car | carbon-rich belts, comets, dwarfs, ice giant interiors, red giant winds | later hull; optics |
+| Isotopes | iso | giants, ice giants best | engine; tanks |
+| Heavy elements | hvy | debris round pulsars, magnetars, black holes; a trickle round white dwarfs | top engine and optics levels |
+
+Rules of the design:
+
+- **One hold, shared.** What to carry is a choice. `dump` throws stock overboard.
+- **`scoop` and `ice` stay as they are** (fuel and shield are the ship's own consumables). `mine N` fills the hold from a body's seams; `mine N car` picks a material.
+- **The survey reveals seams.** A body must be charted before it can be mined.
+- **Thinning**: a seam's rate falls with the amount taken, toward a floor, and what was taken is remembered per system in the save. A culture present in the system counts as having taken some already.
+- **The body matters**: free fall (belts, comets) is quick, deep gravity wells are slow.
+- **Hot work**: a few bodies (very close-in rock and giants, anything round a pulsar, magnetar or black hole) cost hull or shield for each day worked.
+- **Refits have recipes**: early levels need the common materials, later ones carbon and isotopes, the top ones heavy elements, so the far chart becomes a ladder.
+- Offered and liked, not yet built: very rare survey finds that boost a rate for a while (the owner's own idea from play-test 1).
+- Left for later: processing steps and equipment refits (the biggest of the three sizes); carrying volatiles to patch the shield in flight.
+
+### Contact (slice 2 step 2): defaults the owner has agreed
+
+Build after materials. Terms on arrival by temperament (welcoming: free; proud: a toll; wary: a limited stay; reclusive: look but take nothing; hostile: leave). Comply or ignore; ignoring escalates. Agreed defaults: a toll is paid in materials the culture lacks; about ten days of warning, then a few percent of hull a day, so the Mind takes the conn after roughly a month; claimed space with nobody in it has no terms. The Mind's exit is at 10% hull, written as one function with a cutoff so a smarter rule can replace it.
 
 ### Ship politics: thinking so far
 
