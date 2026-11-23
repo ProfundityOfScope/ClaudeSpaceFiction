@@ -347,6 +347,17 @@ How to bring the two projects together (recommended to the owner, not yet agreed
 - **Where work can happen**: a cloud session can do the text game, the rules, a plain Swift package and the notes. Building the app, the simulator and Metal need the owner's Mac: Claude Code run there inside the repository, or the Mac attached to a cloud session.
 - As of this note the iOS project is not in any repository a session here can reach, so it is local to the owner's Mac or private.
 
+The owner's leaning since, which is the better plan and replaces "one repository" above if they go ahead:
+
+- **The owner is moving to Claude Code on their Mac**, where a session can see both projects and build the app.
+- **A third, clean project for the real game, with the other two as references.** This repository stays the rules lab (and stays public, with the playable page); the galaxy prototype stays the galaxy lab; the new project is the product and can be private. It matches the owner's standing rule that earlier experiments are flavour, not spec.
+- What makes that work:
+  - **One brain per project.** The new project gets its own `CLAUDE.md` and design notes, seeded by distilling the decisions recorded here (the target game, the native stack, the ship view, the galaxy contract), not by copying this file's history. This file stays the lab's log.
+  - **The labs stay labs.** Rules are tried in the text game first and then ported, deliberately, not copied wholesale. The new project records which commit of this repository each port matches.
+  - **The port check crosses repositories without trouble**: the transcripts are files. A tool here writes them, and the new project keeps them as fixtures.
+  - **Layout on the Mac**: the three checkouts side by side, the session opened in the new project with the other two added as extra directories to read.
+- The third project is not needed until the port. Contact, trade and the real-time test are still done here first.
+
 ### What the plan has to respect
 
 - **Contact and trade (slice 2 steps 2 and 3).** Standing with a culture, debts, tolls paid, what they wanted: all of it belongs on the `met` entry and dies with it. Nothing about a culture may be stored anywhere that outlives `until`. Prices and wants should be a function of (culture, year), like everything else about them, with only the navigator's own dealings saved.
