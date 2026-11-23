@@ -4,7 +4,7 @@ Pictures and video about Lightspeed: concept art for where the game could go, an
 
 | Folder | What it holds |
 |---|---|
-| `concepts/` | Concept art: what a later, more visual version might look like |
+| `concepts/` | Concept art and schematics: what a later, more visual version might look like |
 | `video/` | A renderer that turns a script into a narrated video about this repository |
 
 ## Concept: Lightspeed on a two-screen phone
@@ -41,6 +41,19 @@ Folded shut, the phone has one screen. The map is still underneath, and the tabs
 The map is the actual galaxy on the default seed: a seven-body system inside the space of a spreading culture, two unread ruins, an oddity, and the true course to that culture's home world. The system, the work rates and the trip times are the game's own numbers.
 
 The moment is staged, with all three crews conveniently busy. The ring showing how far a hard burn reaches is invented: the game does not work that out yet.
+
+## Concept: the ship as a city
+
+How the ship itself might be looked at and managed. This one is a working schematic, not a painting: open `concepts/ship-view.html` in a browser and turn it.
+
+![A long grey ship seen from above at an angle. Coloured blocks are stacked outward to the left and right of a central spine, with more blocks showing beneath. An engine bell is at the lower left, a pale disc at the upper right, a green planet below and a small yellow star at the upper left.](concepts/ship-view.png)
+
+- **A spine with districts built outward from it**, in tiers, on every side.
+- **One cut at a time.** The ship is cut along a plane through the spine and seen from above. The districts lying in the cut spread out to either side, the ones beneath show past them, and the ones above are taken away.
+- **Turn the ship** to bring the next part of the city into the cut.
+- **The body the ship is parked at lies below it**, with the star behind.
+
+The districts are made up, and the final ship will look different. The way of seeing it is the part that is settled. `concepts/ship-view.md` describes it closely enough to rebuild.
 
 ## Narrated videos
 

@@ -1,0 +1,692 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+</head>
+<body>
+<title>Spine and Slices</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one scene (always night: it is space) with its turn controls beneath, and beside it
+   the same ship seen end-on, so the cut can be read in both at once. Colours and type are the
+   Lightspeed console's own. */
+:root {
+  color-scheme: dark;
+  --bg: #0d111c;
+  --panel: #141a29;
+  --line: #262e44;
+  --ink: #d9d5c7;
+  --dim: #8891a8;
+  --accent: #8fd3c8;
+  --accent-ink: #0d111c;
+  --hatch: #7f879e;
+  --space: #04060b;
+  --on-space: #c9cfdd;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --bg: #e9edf2;
+    --panel: #f6f8fa;
+    --line: #c5cdd8;
+    --ink: #18202c;
+    --dim: #566174;
+    --accent: #0d6b63;
+    --accent-ink: #f6f8fa;
+    --hatch: #5b6677;
+  }
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #e9edf2;
+  --panel: #f6f8fa;
+  --line: #c5cdd8;
+  --ink: #18202c;
+  --dim: #566174;
+  --accent: #0d6b63;
+  --accent-ink: #f6f8fa;
+  --hatch: #5b6677;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.5;
+  padding-block: 20px 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1080px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+
+.eyebrow { margin: 0; font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); }
+h1 { margin: 2px 0 0; font-family: var(--mono); font-size: 24px; font-weight: 600; line-height: 1.2; text-wrap: balance; }
+h2 { margin: 0; font-family: var(--mono); font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); }
+.lede { margin: 8px 0 0; max-width: 64ch; }
+p { margin: 0; }
+
+.stage { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (min-width: 880px) { .stage { grid-template-columns: minmax(0, 1fr) 300px; } }
+
+.scene { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.frame { position: relative; background: var(--space); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; display: flex; justify-content: center; }
+.frame canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges; cursor: pointer; touch-action: manipulation; }
+.tag { position: absolute; transform: translate(-50%, -50%); font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em; color: var(--on-space); white-space: nowrap; pointer-events: none; text-shadow: 0 1px 0 var(--space), 0 -1px 0 var(--space), 1px 0 0 var(--space), -1px 0 0 var(--space); }
+.tag.left { transform: translate(0, -50%); }
+
+.turn { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.turn .where { text-align: center; font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; min-width: 0; }
+.turn .where b { font-weight: 600; }
+.turn .where span { color: var(--dim); display: block; }
+
+button, .seg label { font-family: var(--mono); font-size: 13px; }
+button { min-height: 44px; padding: 0 16px; border-radius: 4px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+button:focus-visible, .seg input:focus-visible + label, .check input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.options { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; }
+.opt { display: flex; align-items: center; gap: 10px; font-family: var(--mono); font-size: 13px; color: var(--dim); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+.seg label { min-width: 44px; min-height: 40px; display: grid; place-items: center; padding: 0 12px; background: var(--panel); color: var(--ink); cursor: pointer; border-left: 1px solid var(--line); }
+.seg label:first-of-type { border-left: 0; }
+.seg input:checked + label { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.check { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; cursor: pointer; font-family: var(--mono); font-size: 13px; color: var(--ink); }
+.check input { width: 18px; height: 18px; accent-color: var(--accent); }
+
+.side { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.block { display: flex; flex-direction: column; gap: 10px; }
+.key svg { display: block; width: 100%; max-width: 300px; height: auto; margin: 0 auto; }
+.key text { font-family: var(--mono); font-size: 9px; fill: var(--dim); }
+.key .letter { font-size: 10px; font-weight: 600; fill: var(--ink); }
+.key .wedge { cursor: pointer; }
+.station { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; font-family: var(--mono); font-size: 13px; text-align: center; font-variant-numeric: tabular-nums; }
+.station button { min-width: 44px; padding: 0; }
+.small { font-size: 13px; color: var(--dim); }
+
+.readout { border-top: 1px solid var(--line); padding-top: 14px; }
+.readout dl { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 14px; font-family: var(--mono); font-size: 13px; }
+.readout dt { color: var(--dim); }
+.readout dd { margin: 0; }
+.swatch { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border: 1px solid var(--line); vertical-align: -1px; }
+
+.notes { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; border-top: 1px solid var(--line); padding-top: 20px; }
+@media (min-width: 880px) { .notes { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.notes ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; max-width: 60ch; }
+.notes li b { font-weight: 600; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-family: var(--mono); font-size: 13px; }
+</style>
+
+<main class="wrap">
+  <header>
+    <p class="eyebrow">Lightspeed · ship view, schematic</p>
+    <h1>Spine and slices</h1>
+    <p class="lede">The ship as a city. Districts are built outward from the faces of a central spine, in tiers, at stations along its length. The ship is cut along a plane through the spine, and you look down on the cut: the two faces lying in it spread out to either side, the faces beneath show past them, and the faces above are taken away. Turning the ship brings the next pair into the cut.</p>
+  </header>
+
+  <div class="stage">
+    <section class="scene" aria-label="The ship, cut along a plane through its spine">
+      <div class="frame" id="frame">
+        <canvas id="view" role="img" aria-label="A long ship seen from above at an angle, cut open along its spine, with districts spread to either side, a planet beneath and a star behind"></canvas>
+        <span class="tag" id="tagStern">stern</span>
+        <span class="tag" id="tagBow">bow</span>
+        <span class="tag" id="tagBody">parent body</span>
+        <span class="tag left" id="tagStar">the star</span>
+      </div>
+      <div class="turn">
+        <button type="button" id="prev" aria-label="Turn the ship to the previous view">◀ Turn</button>
+        <div class="where" aria-live="polite"><b id="whereView">View 1 of 6</b><span id="whereFaces">face A left of the spine, D right</span></div>
+        <button type="button" id="next" class="primary" aria-label="Turn the ship to the next view">Turn ▶</button>
+      </div>
+      <div class="options">
+        <div class="opt"><span id="facesLabel">Faces</span>
+          <span class="seg" role="radiogroup" aria-labelledby="facesLabel">
+            <input type="radio" name="faces" id="faces4" value="4"><label for="faces4">4</label>
+            <input type="radio" name="faces" id="faces6" value="6" checked><label for="faces6">6</label>
+            <input type="radio" name="faces" id="faces8" value="8"><label for="faces8">8</label>
+          </span>
+        </div>
+        <label class="check"><input type="checkbox" id="cut" checked><span>Cut away the faces above</span></label>
+        <button type="button" id="shuffle">Rebuild the districts</button>
+      </div>
+    </section>
+
+    <aside class="side">
+      <section class="block key" aria-label="The same ship seen end-on">
+        <h2>Looking down the spine</h2>
+        <svg id="key" viewBox="-122 -118 244 240" role="img" aria-label="Cross-section of the ship: faces round the spine, with the cut drawn through the middle"></svg>
+        <div class="station">
+          <button type="button" id="stationPrev" aria-label="Cross-section one station toward the stern">−</button>
+          <span id="stationLabel">station 5 of 9</span>
+          <button type="button" id="stationNext" aria-label="Cross-section one station toward the bow">+</button>
+        </div>
+        <p class="small">A cross-section at one station, marked on the ship by the pale band. The dashed line is the cut, seen edge-on, and you look down on it from the left. Tap a face to turn it to the top.</p>
+      </section>
+      <section class="block readout" aria-live="polite">
+        <h2>Selected district</h2>
+        <dl id="readout"></dl>
+      </section>
+    </aside>
+  </div>
+
+  <section class="notes">
+    <div class="block">
+      <h2>Where a district is</h2>
+      <ul>
+        <li><b>Station</b>: how far along the spine, counted from the stern.</li>
+        <li><b>Face</b>: which side of the spine it is built on. A view has two opposite faces lying in the cut, one to each side of the spine.</li>
+        <li><b>Tier</b>: how far out it stands. A district is built on the one beneath it.</li>
+      </ul>
+    </div>
+    <div class="block">
+      <h2>Kinds of district, as drawn here</h2>
+      <div class="legend" id="legend"></div>
+      <p class="small">A sketch of the idea, with made-up districts. The model is true 3D so that the turning can be seen; in the game each view would be drawn as pixel art.</p>
+    </div>
+  </section>
+</main>
+
+<script>
+(() => {
+  'use strict';
+
+  // ---- the model -----------------------------------------------------------
+  const STATIONS = 9;
+  const APOTHEM = 0.5;      // centre of the spine to one of its faces
+  const KINDS = {
+    habitat: { name: 'Habitat', rgb: [198, 180, 142] },
+    farm: { name: 'Farms', rgb: [134, 166, 96] },
+    yard: { name: 'Yards', rgb: [192, 124, 86] },
+    tanks: { name: 'Tanks', rgb: [112, 138, 176] },
+    hold: { name: 'Hold', rgb: [152, 130, 114] },
+    hangar: { name: 'Hangars', rgb: [98, 164, 160] },
+    optics: { name: 'Optics', rgb: [154, 134, 190] },
+  };
+  const STRUCTURE = {
+    spine: { name: 'Spine', rgb: [122, 126, 138] },
+    engine: { name: 'Engine', rgb: [92, 96, 110] },
+    bell: { name: 'Engine bell', rgb: [70, 73, 86] },
+    shield: { name: 'Ice shield', rgb: [196, 222, 234] },
+  };
+  const BAND_RGB = [143, 211, 200];
+  const LETTERS = 'ABCDEFGH';
+
+  function mulberry32(a) {
+    return () => {
+      a |= 0; a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function pickKind(station, rng) {
+    const u = rng();
+    if (station <= 1) return u < 0.5 ? 'tanks' : u < 0.85 ? 'yard' : 'hold';
+    if (station >= STATIONS - 2) return u < 0.45 ? 'optics' : u < 0.8 ? 'hangar' : 'habitat';
+    return u < 0.4 ? 'habitat' : u < 0.65 ? 'farm' : u < 0.82 ? 'hold' : u < 0.92 ? 'yard' : 'hangar';
+  }
+
+  /** Districts as boxes: a span along the spine, a span outward, and a width across the face. */
+  function buildDistricts(faces, seed) {
+    const rng = mulberry32(seed * 7919 + faces);
+    const faceWidth = 2 * (APOTHEM + 0.5) * Math.tan(Math.PI / faces) * 0.9;
+    const out = [];
+    for (let face = 0; face < faces; face++) {
+      let s = 0;
+      while (s < STATIONS) {
+        if (rng() < 0.16) { s += 1; continue; }
+        const len = Math.min(STATIONS - s, 1 + (rng() < 0.6 ? 1 : 0) + (rng() < 0.22 ? 1 : 0));
+        const tiers = 1 + (rng() < 0.62 ? 1 : 0) + (rng() < 0.34 ? 1 : 0);
+        const base = pickKind(s, rng);
+        let x0 = s, x1 = s + len, r = APOTHEM;
+        for (let tier = 0; tier < tiers; tier++) {
+          const h = [1.05, 0.85, 0.7][tier] * (0.85 + 0.3 * rng());
+          if (tier > 0 && x1 - x0 > 1) { if (rng() < 0.5) x0 += 0.5; else x1 -= 0.5; }
+          out.push({
+            face, tier, kind: tier === 0 || rng() < 0.6 ? base : pickKind(s, rng),
+            x0: x0 + 0.06, x1: x1 - 0.06, r0: r, r1: r + h, w: faceWidth * [1, 0.86, 0.72][tier],
+            from: Math.floor(x0), to: Math.ceil(x1) - 1,
+          });
+          r += h;
+        }
+        s += len;
+      }
+    }
+    return out;
+  }
+
+  // ---- state ---------------------------------------------------------------
+  const state = { faces: 6, seed: 3, view: 0, phi: 0, cut: true, station: 4, selected: -1, selectedId: -1 };
+  let districts = buildDistricts(state.faces, state.seed);
+  const step = () => (2 * Math.PI) / state.faces;
+  /**
+   * How solid a face is, by where it points: `a` is its angle from "lying in the cut, to the left".
+   * Faces in the cut and beneath it are solid. A face above it is gone, and fades as it crosses.
+   */
+  const solidity = (a) => {
+    if (!state.cut) return 1;
+    a = Math.atan2(Math.sin(a), Math.cos(a));
+    if (a <= 0) return 1;
+    const t = Math.min(1, Math.min(a, Math.PI - a) / step());
+    return 1 - t * t * (3 - 2 * t);
+  };
+
+  // ---- the picture ---------------------------------------------------------
+  const frame = document.getElementById('frame');
+  const canvas = document.getElementById('view');
+  const ctx = canvas.getContext('2d');
+  let W = 0, H = 0, zoom = 1, image, pixels, depthS, ids, lcol, ldepth, lid, backdrop;
+
+  const pack = (r, g, b) => (255 << 24) | (b << 16) | (g << 8) | r;
+  const hash = (x, y) => { let h = (x * 374761393 + y * 668265263) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
+  const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => (v + 0.5) / 16);
+  const LINE = pack(16, 18, 24), PICK = pack(143, 211, 200);
+
+  /** Space, the star and the body the ship is parked at. Painted once per size. */
+  function paintBackdrop() {
+    backdrop = new Uint32Array(W * H);
+    const space = pack(4, 6, 11);
+    const sun = { x: Math.round(W * 0.115), y: Math.round(H * 0.15), r: Math.max(3, Math.round(W * 0.016)) };
+    const planet = { x: W * 0.76, y: H * 1.1, r: H * 0.72 };
+    const greens = [pack(9, 30, 16), pack(18, 62, 24), pack(34, 104, 30), pack(62, 142, 38), pack(104, 186, 52)];
+    // Toward the star, as seen on the planet's face.
+    const lx = -0.62, ly = -0.6, lz = 0.5;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const i = y * W + x;
+        let c = space;
+        const h = hash(x, y);
+        if (h > 0.9965) { const v = 70 + Math.floor(hash(y, x) * 120); c = pack(v, v, v + 16); }
+        const sd = Math.hypot(x - sun.x, y - sun.y);
+        if (sd <= sun.r) c = pack(255, 214, 10);
+        else if (sd <= sun.r * 2.6 && BAYER[(y & 3) * 4 + (x & 3)] > (sd - sun.r) / (sun.r * 1.6)) c = pack(120, 96, 20);
+        const dx = (x + 0.5 - planet.x) / planet.r, dy = (y + 0.5 - planet.y) / planet.r;
+        const d2 = dx * dx + dy * dy;
+        if (d2 <= 1) {
+          const dz = Math.sqrt(1 - d2);
+          const lit = Math.max(0, dx * lx + dy * ly + dz * lz);
+          // A speckled surface, shaded in four steps with a pattern in place of a gradient.
+          const tone = lit * 3.4 + (h - 0.5) * 0.9 + (BAYER[(y & 3) * 4 + (x & 3)] - 0.5) * 0.9;
+          c = greens[Math.max(0, Math.min(3, Math.floor(tone)))];
+          if (d2 > 0.972 && lit > 0.12) c = greens[4];
+        }
+        backdrop[i] = c;
+      }
+    }
+  }
+
+  // The camera is the one isometric games use: the plane of the cut is the ground, seen from 30
+  // degrees above it, with the spine running up to the right and "up out of the cut" straight up
+  // the screen. Ship space is x along the spine, y across the cut, z up out of it.
+  const SE = Math.sin(Math.PI / 6), CE = Math.cos(Math.PI / 6), Q = Math.SQRT1_2;
+  const MID = (STATIONS - 1) / 2;
+  let unit = 1, ox = 0, oy = 0;
+  function project(x, y, z, out) {
+    const xs = x - MID;
+    out[0] = ox + (xs - y) * Q * unit;
+    out[1] = oy - ((xs + y) * SE * Q + z * CE) * unit;
+    out[2] = -(xs + y) * CE * Q + z * SE;
+    return out;
+  }
+  const nearness = (x, y, z) => -(x - MID + y) * CE * Q + z * SE;
+  /** How much a surface facing (nx, ny, nz) faces us, and how well the star lights it. */
+  const towardUs = (nx, ny, nz) => -(nx + ny) * CE * Q + nz * SE;
+  const lightOn = (nx, ny, nz) => nx * -0.5 + ny * 0.25 + nz * 0.83;
+
+  /** Size and place the ship so that all of it, turned any way, is in the frame. */
+  function fit() {
+    unit = 1; ox = 0; oy = 0;
+    const t = [0, 0, 0];
+    let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+    const see = (x, y, z) => { project(x, y, z, t); x0 = Math.min(x0, t[0]); x1 = Math.max(x1, t[0]); y0 = Math.min(y0, t[1]); y1 = Math.max(y1, t[1]); };
+    for (let k = 0; k < 24; k++) {
+      const c = Math.cos((k / 24) * 2 * Math.PI), s = Math.sin((k / 24) * 2 * Math.PI);
+      see(-3, 1.9 * c, 1.9 * s); see(STATIONS + 1.05, 2.7 * c, 2.7 * s);
+      see(0, 3.7 * c, 3.7 * s); see(STATIONS, 3.7 * c, 3.7 * s);
+    }
+    const u = Math.min((W * 0.95) / (x1 - x0), (H * 0.93) / (y1 - y0));
+    ox = W / 2 - ((x0 + x1) / 2) * u; oy = H / 2 - ((y0 + y1) / 2) * u; unit = u;
+  }
+
+  function resize() {
+    const css = frame.clientWidth - 2;
+    if (css <= 0) return;
+    zoom = Math.max(1, Math.round(css / 360));
+    const w = Math.floor(css / zoom), h = Math.round(w * 0.72);
+    if (w === W && h === H) return;
+    W = w; H = h;
+    canvas.width = W; canvas.height = H;
+    canvas.style.width = `${W * zoom}px`;
+    canvas.style.height = `${H * zoom}px`;
+    image = ctx.createImageData(W, H);
+    pixels = new Uint32Array(image.data.buffer);
+    depthS = new Float32Array(W * H);
+    ids = new Int16Array(W * H);
+    lcol = new Uint32Array(W * H);
+    ldepth = new Float32Array(W * H).fill(-1e9);
+    lid = new Int16Array(W * H);
+    paintBackdrop();
+    fit();
+    placeTags();
+    draw();
+  }
+
+  // Where triangles are being drawn: straight into the picture, or onto a sheet of their own
+  // that is then laid over it at some strength.
+  let tCol, tDepth, tId, tBehind = null, bx0, by0, bx1, by1;
+  function triangle(a, b, c, colour, id) {
+    const area = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    if (Math.abs(area) < 1e-9) return;
+    const minX = Math.max(0, Math.floor(Math.min(a[0], b[0], c[0]))), maxX = Math.min(W - 1, Math.ceil(Math.max(a[0], b[0], c[0])));
+    const minY = Math.max(0, Math.floor(Math.min(a[1], b[1], c[1]))), maxY = Math.min(H - 1, Math.ceil(Math.max(a[1], b[1], c[1])));
+    if (minX > maxX || minY > maxY) return;
+    if (minX < bx0) bx0 = minX; if (maxX > bx1) bx1 = maxX; if (minY < by0) by0 = minY; if (maxY > by1) by1 = maxY;
+    for (let y = minY; y <= maxY; y++) {
+      const py = y + 0.5;
+      for (let x = minX; x <= maxX; x++) {
+        const px = x + 0.5;
+        const w0 = ((b[0] - px) * (c[1] - py) - (b[1] - py) * (c[0] - px)) / area;
+        const w1 = ((c[0] - px) * (a[1] - py) - (c[1] - py) * (a[0] - px)) / area;
+        const w2 = 1 - w0 - w1;
+        if (w0 < -1e-6 || w1 < -1e-6 || w2 < -1e-6) continue;
+        const z = w0 * a[2] + w1 * b[2] + w2 * c[2];
+        const i = y * W + x;
+        if (tBehind && z <= tBehind[i]) continue;
+        if (z > tDepth[i]) { tDepth[i] = z; tCol[i] = colour; tId[i] = id; }
+      }
+    }
+  }
+
+  /** One flat face: lit, plain or in shadow. */
+  function shade(rgb, light, lifted) {
+    const k = light > 0.62 ? 1.14 : light > 0.2 ? 0.88 : 0.6;
+    const lift = lifted ? 34 : 0;
+    const ch = (v) => Math.max(0, Math.min(255, Math.round(v * k + lift)));
+    return pack(ch(rgb[0]), ch(rgb[1]), ch(rgb[2]));
+  }
+
+  const P = Array.from({ length: 8 }, () => [0, 0, 0]);
+  /**
+   * A block on a face that points at angle `a` round the spine. Along the spine x0..x1, outward
+   * from the axis u0..u1, and w0..w1 across the face.
+   */
+  function slab(x0, x1, u0, u1, w0, w1, a, id, rgb, lifted) {
+    const ca = Math.cos(a), sa = Math.sin(a);
+    let n = 0;
+    for (const x of [x0, x1]) for (const u of [u0, u1]) for (const w of [w0, w1]) project(x, u * ca - w * sa, u * sa + w * ca, P[n++]);
+    // Corners are numbered x, then outward, then across: index = 4x + 2u + w.
+    const faces = [
+      [0, 1, 3, 2, -1, 0, 0], [4, 6, 7, 5, 1, 0, 0],           // toward the stern, toward the bow
+      [0, 4, 5, 1, 0, -ca, -sa], [2, 3, 7, 6, 0, ca, sa],      // facing the spine, and facing outward
+      [0, 2, 6, 4, 0, sa, -ca], [1, 5, 7, 3, 0, -sa, ca],      // the two sides of the face
+    ];
+    for (const [c0, c1, c2, c3, nx, ny, nz] of faces) {
+      if (towardUs(nx, ny, nz) <= 0) continue;
+      const colour = shade(rgb, lightOn(nx, ny, nz), lifted);
+      triangle(P[c0], P[c1], P[c2], colour, id);
+      triangle(P[c0], P[c2], P[c3], colour, id);
+    }
+  }
+
+  const A = [0, 0, 0], B = [0, 0, 0], C = [0, 0, 0], D = [0, 0, 0];
+  /** A tapered prism round the axis: the spine itself, the engine, its bell, the shield. */
+  function prism(x0, x1, r0, r1, sides, turn, id, rgb) {
+    const k0 = 1 / Math.cos(Math.PI / sides), lifted = id === state.selectedId;
+    const slope = (r0 - r1) / Math.max(0.001, Math.hypot(x1 - x0, r0 - r1));
+    for (let k = 0; k < sides; k++) {
+      const a0 = turn + ((k - 0.5) * 2 * Math.PI) / sides, a1 = turn + ((k + 0.5) * 2 * Math.PI) / sides, am = (a0 + a1) / 2;
+      const c0 = Math.cos(a0), s0 = Math.sin(a0), c1 = Math.cos(a1), s1 = Math.sin(a1);
+      if (towardUs(slope, Math.cos(am), Math.sin(am)) > 0) {
+        project(x0, r0 * k0 * c0, r0 * k0 * s0, A); project(x0, r0 * k0 * c1, r0 * k0 * s1, B);
+        project(x1, r1 * k0 * c1, r1 * k0 * s1, C); project(x1, r1 * k0 * c0, r1 * k0 * s0, D);
+        const colour = shade(rgb, lightOn(slope, Math.cos(am), Math.sin(am)), lifted);
+        triangle(A, B, C, colour, id); triangle(A, C, D, colour, id);
+      }
+      // End caps, as fans from the axis.
+      for (const [x, r, nx] of [[x0, r0, -1], [x1, r1, 1]]) {
+        if (towardUs(nx, 0, 0) <= 0) continue;
+        project(x, 0, 0, A); project(x, r * k0 * c0, r * k0 * s0, B); project(x, r * k0 * c1, r * k0 * s1, C);
+        triangle(A, B, C, shade(rgb, lightOn(nx, 0, 0), lifted), id);
+      }
+    }
+  }
+
+  // Ids in the picture: districts first, then the fixed parts, then the station band (which cannot be picked).
+  const fixedId = (n) => districts.length + 1 + n;
+  const bandId = () => districts.length + 9;
+  const FIXED = ['spine', 'engine', 'bell', 'shield'];
+
+  function drawFace(face, a) {
+    districts.forEach((d, i) => {
+      if (d.face === face) slab(d.x0, d.x1, d.r0, d.r1, -d.w / 2, d.w / 2, a, i + 1, KINDS[d.kind].rgb, i === state.selected);
+    });
+  }
+
+  const mix = (dst, src, a) => {
+    if (a >= 0.999) return src;
+    const b = 1 - a;
+    return pack(((dst & 255) * b + (src & 255) * a) | 0, (((dst >> 8) & 255) * b + ((src >> 8) & 255) * a) | 0, (((dst >> 16) & 255) * b + ((src >> 16) & 255) * a) | 0);
+  };
+  /** Lay the sheet just drawn over the picture at a given strength, with its outlines, and wipe it. */
+  function laySheet(alpha, pickable) {
+    if (bx1 < bx0) return;
+    const sel = state.selected + 1;
+    for (let y = by0; y <= by1; y++) {
+      for (let x = bx0, i = y * W + bx0; x <= bx1; x++, i++) {
+        const a = lid[i];
+        if (!a) continue;
+        pixels[i] = mix(pixels[i], lcol[i], alpha);
+        if (pickable) ids[i] = a;
+      }
+    }
+    for (let y = Math.max(0, by0 - 1); y <= Math.min(H - 2, by1); y++) {
+      for (let x = Math.max(0, bx0 - 1); x <= Math.min(W - 2, bx1); x++) {
+        const i = y * W + x, a = lid[i], b = lid[i + 1], c = lid[i + W];
+        if (a === b && a === c) continue;
+        const hot = sel > 0 && (a === sel || b === sel || c === sel);
+        pixels[i] = mix(pixels[i], hot ? PICK : LINE, alpha);
+      }
+    }
+    for (let y = by0; y <= Math.min(H - 1, by1 + 1); y++) {
+      lid.fill(0, y * W + bx0, y * W + bx1 + 1);
+      ldepth.fill(-1e9, y * W + bx0, y * W + bx1 + 1);
+    }
+  }
+
+  function draw() {
+    if (!W) return;
+    pixels.set(backdrop);
+    depthS.fill(-1e9);
+    ids.fill(0);
+    state.selectedId = state.selected >= districts.length ? state.selected + 1 : -1;
+    const turn = -state.phi, sides = state.faces;
+
+    // Everything solid goes straight into the picture, nearest thing winning.
+    tCol = pixels; tDepth = depthS; tId = ids; tBehind = null; bx0 = W; by0 = H; bx1 = -1; by1 = -1;
+    prism(-1.3, STATIONS + 0.7, APOTHEM, APOTHEM, sides, turn, fixedId(0), STRUCTURE.spine.rgb);
+    prism(-2.0, -0.35, 1.25, 1.25, sides, turn, fixedId(1), STRUCTURE.engine.rgb);
+    prism(-3.0, -2.0, 1.75, 0.8, 12, turn, fixedId(2), STRUCTURE.bell.rgb);
+    prism(STATIONS + 0.7, STATIONS + 1.05, 2.5, 2.1, 12, turn, fixedId(3), STRUCTURE.shield.rgb);
+    // The station the end-on view is taken at: a thin band round the spine.
+    prism(state.station + 0.42, state.station + 0.58, APOTHEM + 0.07, APOTHEM + 0.07, sides, turn, bandId(), BAND_RGB);
+    const crossing = [];
+    for (let face = 0; face < state.faces; face++) {
+      const a = face * step() - state.phi, alpha = solidity(a);
+      if (alpha >= 0.999) drawFace(face, a);
+      else if (alpha > 0.01) crossing.push({ face, a, alpha });
+    }
+    const sel = state.selected + 1, band = bandId();
+    for (let y = 0; y < H - 1; y++) {
+      for (let x = 0; x < W - 1; x++) {
+        const i = y * W + x, a = ids[i], b = ids[i + 1], c = ids[i + W];
+        if (a === b && a === c) continue;
+        pixels[i] = sel > 0 && (a === sel || b === sel || c === sel) ? PICK : LINE;
+      }
+    }
+    for (let i = 0; i < ids.length; i++) if (ids[i] === band) ids[i] = 0;
+
+    // A face crossing the cut during a turn is drawn on a sheet of its own and laid over at its strength.
+    tCol = lcol; tDepth = ldepth; tId = lid; tBehind = depthS;
+    for (const item of crossing) {
+      bx0 = W; by0 = H; bx1 = -1; by1 = -1;
+      drawFace(item.face, item.a);
+      laySheet(item.alpha, item.alpha >= 0.5);
+    }
+    ctx.putImageData(image, 0, 0);
+  }
+
+  function placeTags() {
+    const t = [0, 0, 0];
+    const put = (id, x, y) => {
+      const el = document.getElementById(id);
+      el.style.left = `${(100 * Math.max(W * 0.07, Math.min(W * 0.93, x))) / W}%`;
+      el.style.top = `${(100 * Math.max(H * 0.05, Math.min(H * 0.95, y))) / H}%`;
+    };
+    project(-3.0, 0, -2.0, t); put('tagStern', t[0] - W * 0.03, t[1] + H * 0.05);
+    project(STATIONS + 1.0, 0, 2.7, t); put('tagBow', t[0] - W * 0.09, t[1] - H * 0.02);
+    put('tagBody', W * 0.84, H * 0.92);
+    put('tagStar', Math.round(W * 0.115) + Math.max(3, Math.round(W * 0.016)) * 2.6 + 5, H * 0.15);
+  }
+
+  // ---- turning -------------------------------------------------------------
+  const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let anim = 0;
+  function turnBy(steps) {
+    if (!steps) return;
+    state.view = (((state.view + steps) % state.faces) + state.faces) % state.faces;
+    const from = state.phi, to = from + steps * step(), t0 = performance.now(), ms = still ? 0 : 420 + 140 * Math.min(3, Math.abs(steps));
+    cancelAnimationFrame(anim);
+    const tick = (now) => {
+      const t = ms ? Math.min(1, (now - t0) / ms) : 1;
+      const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+      state.phi = from + (to - from) * e;
+      if (t >= 1) state.phi = state.view * step();
+      draw(); drawKey();
+      if (t < 1) anim = requestAnimationFrame(tick);
+    };
+    anim = requestAnimationFrame(tick);
+    describe();
+  }
+
+  // ---- the end-on view -----------------------------------------------------
+  const key = document.getElementById('key');
+  const css = (rgb) => `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+  function drawKey() {
+    const n = state.faces, half = (Math.PI / n) * 0.86, rings = [16, 40, 60, 78];
+    // "Across the cut, to the left" runs up the page, and "up out of the cut" points left, toward you.
+    const at = (a, r) => `${(-Math.sin(a) * r).toFixed(1)},${(-Math.cos(a) * r).toFixed(1)}`;
+    let letters = '';
+    let out = `<defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" stroke="var(--hatch)" stroke-width="1.2" opacity="0.55"/></pattern></defs>`;
+    for (let face = 0; face < n; face++) {
+      const a = face * step() - state.phi;
+      const strength = 0.2 + 0.8 * solidity(a);
+      const here = districts.filter((d) => d.face === face && d.from <= state.station && d.to >= state.station);
+      let cells = '';
+      for (let tier = 0; tier < 3; tier++) {
+        const d = here.find((x) => x.tier === tier);
+        const index = d ? districts.indexOf(d) : -1, picked = index >= 0 && index === state.selected;
+        const path = `M${at(a - half, rings[tier])} L${at(a - half, rings[tier + 1])} L${at(a + half, rings[tier + 1])} L${at(a + half, rings[tier])} Z`;
+        cells += `<path d="${path}" fill="${d ? css(KINDS[d.kind].rgb) : 'none'}" stroke="${picked ? 'var(--accent)' : 'var(--line)'}" stroke-width="${picked ? 2.4 : 1}" fill-opacity="${strength.toFixed(2)}"/>`;
+      }
+      const hit = `M${at(a - half, rings[0])} L${at(a - half, rings[3])} L${at(a + half, rings[3])} L${at(a + half, rings[0])} Z`;
+      out += `<g class="wedge" data-face="${face}"><title>Face ${LETTERS[face]}</title>${cells}<path d="${hit}" fill="transparent"/></g>`;
+      const [lx, ly] = at(a, 91).split(',');
+      letters += `<circle cx="${lx}" cy="${ly}" r="7.5" fill="var(--bg)"/><text class="letter" x="${lx}" y="${Number(ly) + 3.5}" text-anchor="middle">${LETTERS[face]}</text>`;
+    }
+    out += `<circle r="${rings[0] - 4}" fill="${css(STRUCTURE.spine.rgb)}" stroke="var(--line)"/>`;
+    if (state.cut) out += `<path d="M0,-100 L-104,-100 L-104,100 L0,100 Z" fill="url(#hatch)" pointer-events="none"/>`;
+    out += `<line x1="0" y1="-104" x2="0" y2="104" stroke="var(--accent)" stroke-width="1.6" stroke-dasharray="5 4"/>`;
+    out += letters;
+    out += `<text x="-60" y="-108" text-anchor="middle" dominant-baseline="hanging">${state.cut ? 'cut away' : 'above the cut'}</text><text x="62" y="-108" text-anchor="middle" dominant-baseline="hanging">beneath the cut</text>`;
+    out += `<text x="7" y="117">the cut</text>`;
+    // Where the picture is seen from: above the cut, and off toward its near edge.
+    out += `<g transform="translate(-74,89)"><path d="M-6,0 Q0,-6 6,0 Q0,6 -6,0 Z" fill="var(--bg)" stroke="var(--ink)" stroke-width="1.2"/><circle r="1.9" fill="var(--ink)"/><text y="14" text-anchor="middle">you</text></g>`;
+    key.innerHTML = out;
+    document.getElementById('stationLabel').textContent = `station ${state.station + 1} of ${STATIONS}`;
+  }
+  key.addEventListener('click', (event) => {
+    const g = event.target.closest('.wedge');
+    if (!g) return;
+    let steps = (Number(g.dataset.face) - state.view) % state.faces;
+    if (steps > state.faces / 2) steps -= state.faces;
+    if (steps < -state.faces / 2) steps += state.faces;
+    if (steps) turnBy(steps);
+  });
+
+  // ---- words ---------------------------------------------------------------
+  function describe() {
+    const n = state.faces, left = state.view, right = (state.view + n / 2) % n;
+    document.getElementById('whereView').textContent = `View ${state.view + 1} of ${n}`;
+    document.getElementById('whereFaces').textContent = `face ${LETTERS[left]} left of the spine, ${LETTERS[right]} right`;
+    const dl = document.getElementById('readout');
+    const row = (k, value) => `<dt>${k}</dt><dd>${value}</dd>`;
+    const i = state.selected;
+    if (i < 0) {
+      dl.innerHTML = row('—', 'Tap a district on the ship.');
+    } else if (i >= districts.length) {
+      dl.innerHTML = row('part', STRUCTURE[FIXED[i - districts.length]].name) + row('', 'Fixed structure: it belongs to every view.');
+    } else {
+      const d = districts[i];
+      const a = Math.atan2(Math.sin((d.face - state.view) * step()), Math.cos((d.face - state.view) * step()));
+      const where = d.face === left ? 'in the cut, left of the spine' : d.face === right ? 'in the cut, right of the spine' : a < 0 ? 'beneath the cut in this view' : 'above the cut in this view';
+      dl.innerHTML =
+        row('kind', `<span class="swatch" style="background:${css(KINDS[d.kind].rgb)}"></span>${KINDS[d.kind].name}`) +
+        row('station', d.from === d.to ? `${d.from + 1}` : `${d.from + 1} to ${d.to + 1}`) +
+        row('face', `${LETTERS[d.face]}, ${where}`) +
+        row('tier', `${d.tier + 1}${d.tier ? `, built on tier ${d.tier}` : ', on the spine itself'}`);
+    }
+  }
+
+  canvas.addEventListener('click', (event) => {
+    const box = canvas.getBoundingClientRect();
+    const x = Math.floor(((event.clientX - box.left) / box.width) * W), y = Math.floor(((event.clientY - box.top) / box.height) * H);
+    let id = 0;
+    // A tap lands near, not on: take the nearest thing within two pixels.
+    for (let r = 0; r <= 2 && !id; r++) for (let dy = -r; dy <= r && !id; dy++) for (let dx = -r; dx <= r && !id; dx++) {
+      const px = x + dx, py = y + dy;
+      if (px >= 0 && py >= 0 && px < W && py < H && ids[py * W + px] > 0) id = ids[py * W + px];
+    }
+    state.selected = id > 0 ? id - 1 : -1;
+    if (id > 0 && id <= districts.length) state.station = Math.min(districts[id - 1].to, Math.max(districts[id - 1].from, state.station));
+    draw(); drawKey(); describe();
+  });
+
+  // ---- controls ------------------------------------------------------------
+  document.getElementById('prev').addEventListener('click', () => turnBy(-1));
+  document.getElementById('next').addEventListener('click', () => turnBy(1));
+  document.addEventListener('keydown', (event) => {
+    if (event.target.matches('input, textarea, select')) return;
+    if (event.key === 'ArrowLeft') turnBy(-1);
+    if (event.key === 'ArrowRight') turnBy(1);
+  });
+  function rebuild() {
+    cancelAnimationFrame(anim);
+    districts = buildDistricts(state.faces, state.seed);
+    state.view = 0; state.phi = 0; state.selected = -1;
+    draw(); drawKey(); describe();
+  }
+  for (const input of document.querySelectorAll('input[name="faces"]')) {
+    input.addEventListener('change', () => { state.faces = Number(input.value); rebuild(); });
+  }
+  document.getElementById('cut').addEventListener('change', (event) => { state.cut = event.target.checked; draw(); drawKey(); });
+  document.getElementById('shuffle').addEventListener('click', () => { state.seed += 1; rebuild(); });
+  const moveStation = (by) => { state.station = Math.max(0, Math.min(STATIONS - 1, state.station + by)); draw(); drawKey(); };
+  document.getElementById('stationPrev').addEventListener('click', () => moveStation(-1));
+  document.getElementById('stationNext').addEventListener('click', () => moveStation(1));
+
+  document.getElementById('legend').innerHTML = Object.values(KINDS).map((kind) => `<span><span class="swatch" style="background:${css(kind.rgb)}"></span>${kind.name}</span>`).join('');
+
+  new ResizeObserver(resize).observe(frame);
+  resize(); drawKey(); describe();
+})();
+</script>
+</body>
+</html>
