@@ -338,6 +338,15 @@ Thinking given to the owner, not yet answered:
 - **Retune, not redesign**: the census numbers (share inhabited, materials by kind of star, heavy elements within reach of the start, a start with neighbours) were tuned on this star mix. A realistic one is three-quarters red dwarfs. Rerun the census on it.
 - **To ask about the prototype**: how a star gets its identity; how it finds the stars near a point at a given time; whether motion is closed-form or stepped; flat or with depth; whether the arithmetic the rules depend on is done in doubles on the processor; whether it has gas; how stars are born and die over a billion years; what a cluster is.
 
+How to bring the two projects together (recommended to the owner, not yet agreed):
+
+- **The chat is not the asset; the repository is.** A session that reads this file and `media/concepts/ship-view.md` starts with what the long design chat knew. So combining the projects means putting these notes and the iOS project where one session reads both.
+- **One repository.** Bring the Xcode project into this one under `ios/`, keeping its history, and leave the text game at the root so that its build and the public page are untouched. The Swift rules package joins them at the port. Reasons: one roadmap and one `CLAUDE.md` for every session; the port is checked against transcripts recorded from the TypeScript version, which wants both in one checkout; the galaxy contract lives in one place.
+- **The catch is that this repository is public.** If the app's source should be private, the combined repository has to be private, and the public page then needs a paid GitHub plan or a small public repository holding only the built page. Before anything is brought in, check the Xcode project for signing identities, keys, large binaries and data with a licence.
+- **If two repositories are kept**: attach both to a session, keep the one roadmap here, and have the iOS project's `CLAUDE.md` point at it.
+- **Where work can happen**: a cloud session can do the text game, the rules, a plain Swift package and the notes. Building the app, the simulator and Metal need the owner's Mac: Claude Code run there inside the repository, or the Mac attached to a cloud session.
+- As of this note the iOS project is not in any repository a session here can reach, so it is local to the owner's Mac or private.
+
 ### What the plan has to respect
 
 - **Contact and trade (slice 2 steps 2 and 3).** Standing with a culture, debts, tolls paid, what they wanted: all of it belongs on the `met` entry and dies with it. Nothing about a culture may be stored anywhere that outlives `until`. Prices and wants should be a function of (culture, year), like everything else about them, with only the navigator's own dealings saved.
