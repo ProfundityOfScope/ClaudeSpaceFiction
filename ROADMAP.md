@@ -8,9 +8,9 @@ A text prototype of the game Lightspeed: a forever cruise on a relativistic worl
 
 ## Where things stand
 
-- `main` = slice 1, onboarding and tuning, the charts, slice 2 step 1 (other people, ruins, relics) and the media folder. `v0.1.0` tags slice 1 (commit 8461d87). Suggested to the owner: tag today's `main` `v0.1.1` if they want a marker, and keep `v0.2.0` for when contact and trade are in.
+- `main` = slice 1, onboarding and tuning, the charts, slice 2 step 1 (other people, ruins, relics), the media folder, materials, the first round of the scale test, and arriving as a sentence from the Mind with no separate sweep. `v0.1.0` tags slice 1 (commit 8461d87). Suggested to the owner: tag `main` `v0.1.1` if they want a marker, and keep `v0.2.0` for when contact and trade are in.
 - Public page: GitHub Pages serves `main` / `docs/`. Dev preview: a private Artifact named "Lightspeed", republished from `dist/artifact.html` (find it in the artifact list; pass its URL to update it in place).
-- Current branch of work: `claude/isru`, materials: built and in a pull request, together with the first round of work from the scale test (see "The scale test" below) and the folding of the sweep into arriving. The owner pulled materials ahead of contact so that cultures can want different things. Next: slice 2 step 2 (contact), then step 3 (trade).
+- Current branch of work: `claude/target-game`, which so far holds only the notes under "Where this is going". Next to build, unless the owner redirects: slice 2 step 2 (contact), then step 3 (trade).
 - Not yet heard: how the onboarding, the economy burn, the three charts and the reach line played. Ask.
 
 ## What the owner wants (their steers, in order of weight)
@@ -34,6 +34,57 @@ A text prototype of the game Lightspeed: a forever cruise on a relativistic worl
 Working with the owner: fluent in scientific Python, new to TypeScript and web builds. Wants things physically motivated, easy to follow and concisely documented. Prefers short summaries and being told what to look for when testing. Often plays on a phone, so check phone width.
 
 Reactions to slice 1 so far: finding the worked stone at Ember 61 was the high point; the Mind's remarks landed well; working out the commands took a minute.
+
+## Where this is going: the phone game
+
+The owner's description of the target, given once the text version had become fun to play. The text prototype stays the place where rules are tried; this is what they are being tried for.
+
+- **A visual phone game, away from the terminal entirely.** The Duo concept in `media/` is the first sketch of how it looks.
+- **Idle and incremental, in real time.** There will be no `stay 30`: the player actually waits.
+- **So the navigator needs things to do** while parked and while under way. That is the gap to design for.
+- **What we have is the bones** of the loop where the ship deals with the world, and the roadmap holds the premises for much of the rest.
+
+Three features the owner named, with what inspired each:
+
+1. **Moving the ship within a system**: nearer to a mining site; to a station for a meeting or faster repairs; out of the path of a coronal mass ejection; sometimes to investigate an anomaly. (Ixion.)
+2. **Cryo for the navigator, at some cost**: time passes faster while parked, and micromanagement is given up for the duration. It also makes trips subjectively shorter. (House of Suns.)
+3. **Managing the ship itself, small and large**: in the manner of FTL and Barotrauma but on a bigger scale; Space Haven for the look; the population handled more like a city in Cities: Skylines, complicated by its being a giant spaceship.
+
+What the owner has decided since:
+
+- **The player is the navigator.** Things happen in real time from the player's point of view, and that includes while the app is closed: time runs on under the Mind's standing orders.
+- **Cryo costs absence**, and nothing else. No mortal navigator, no succession: that idea is dropped, because the player is the navigator.
+- **Order of work**: contact, then trade, then anything else vital, then real time, tried in the text version first.
+- **A well-built native iOS app, Apple only, for good.** Not a website in a wrapper: the owner finds those limit the design. Swift throughout, SwiftUI for the interface, Metal for the pixel views. See "The native app".
+- **The ship view** as the owner pictures it: like Cities: Skylines or Ixion. Sectors are swapped in and out, people move about as tiny dots, things can be tapped, and refits show. So it is driven by the game's state, not hand-animated.
+- **The ship's shape, from the owner's own sketch**: a central spine, with districts arranged round it and along it. The player sees one slice through the axis at a time and turns to the next with buttons, with perhaps four to six slice angles in all. The body the ship is parked at lies below it, and the star may be in the background. The style: pixel art, 2.5D, isometric.
+- **The ship view is settled**, in the owner's words "basically how I want the game to look", though the final ship will change in looks and in what it does. It took three versions. **Read `media/concepts/ship-view.md` before building it**: that file is the full description (the ship's shape, the cut, the camera's arithmetic, light, colours, the backdrop, the order of drawing, the end-on key), written to rebuild from. Beside it are the working schematic (`ship-view.html`, also a private Artifact named "Spine and Slices": https://claude.ai/artifact/PdZb9FH3UHpGHwkq382oE8) and three pictures. In short:
+  - Districts are boxes that stand on the faces of the spine and stack outward in tiers. A district is placed by station, face and tier.
+  - The ship is cut along a plane through the axis and seen from above at the isometric angle, the spine running up to the right. The two faces in the cut spread left and right; faces beneath are drawn; faces above are gone, fading as they cross during a turn. The plane is not drawn.
+  - Tried and dropped: districts standing on the cut as if it were a deck, and ghosting the hidden faces.
+  - Not confirmed: whether "four to six slice angles" counts faces (as built) or planes.
+
+### The native app
+
+Agreed with the owner:
+
+- **Swift for the rules, SwiftUI for every panel, Metal for the three pixel views** (galaxy, system, ship). Not Godot: the game is mostly interface over a simulation, the glass look is the system's own material in SwiftUI, and an idle game lives on what native code reaches easily (local notifications as the Mind waking the navigator, a widget, a Live Activity for a burn). Not SpriteKit either: the owner will not build on something Apple has left untouched for so long, and the ship view as described needs little that SpriteKit would have given.
+- **Real time is tried in the text version first**, after trade.
+
+How to build it, as proposed (details open until the work starts):
+
+- **The renderer stays small and is ours.** One pipeline that draws instanced, textured quads from a sprite atlas with hard pixels at whole-number scales: sectors, bodies, shuttles and the dots are all that. One full-screen pass for pictures generated from data (the gas, the star field) and for the glass that shows the map beneath it at twice the pixel size. Nothing else until something needs it.
+- **Draw on demand.** The view redraws when the state changes, and at a low rate while dots are moving. An idle game should not cost battery to look at.
+- **Tapping is worked out from the layout**, on the processor: sectors are rectangles and the game knows where they are.
+- **The dots are not simulated.** Where people are is a function of the sector's state, the seed and the time, like everything else about the world, so they cost nothing in the save and nothing while the app is closed.
+- **Decide the pixel grid early** (how many screen points to one art pixel, and the palette), because every piece of art depends on it.
+- **The rules move to Swift** (a widget has to be able to compute the ship's state without the app). Port them faithfully first, checked against transcripts recorded from the TypeScript version on several seeds; then do galaxy version 2 in Swift, where 64-bit integers are native. The port throws saves away once, and so does version 2: do them together.
+- **Keep the rules a plain Swift package** with no Apple frameworks in it, so that its tests, the bot and the census can still run in a cloud session on Linux.
+- **Metal cannot be compiled or run in a cloud session.** The app and its shaders need Xcode on the owner's Mac: either the owner builds and reports, or the Mac is attached to the session so that builds and simulator screenshots can be made from here. Plan for that before the first rendering work.
+- **Before any of that**, in TypeScript, where trying things is cheapest: split rules from prose in `game.ts` (typed actions in, typed events out, the text log as one reader of them), and replace `stay` by a clock that jumps from event to event, so that weeks away cost one calculation. That split is the blueprint for the port.
+- Order of drawing, when it comes: the text game running natively with notifications; then the system map; then the ship; then the galaxy.
+- **The ship is not a flat sprite scene.** The settled ship view (`media/concepts/ship-view.md`) is a 3D arrangement of boxes seen through a fixed isometric camera, with a depth buffer, an id buffer for outlines and tapping, and a turn about the spine. So the renderer needs more than the one instanced-quad pipeline first proposed: either boxes with pixel textures, or sprites drawn per view. Decide that when the ship is built; boxes make the turn animate for free.
+- Offered, not taken up yet: a small early spike on the owner's Mac (the existing galaxy map and the glass-over-pixels effect in a bare Metal view inside SwiftUI) to have the look in hand long before the port.
 
 ## The slice plan
 
@@ -270,6 +321,42 @@ Three things stand between the demo and a full-size galaxy, and each of them cha
 - **Worth doing in the same pass:** anything else that changes what the dice pick, such as new `FEATURES` entries held back for the purpose, and re-tuning densities for the new geometry (the census tool is the check).
 
 Version 2 throws every voyage away. That is acceptable during testing; it is the reason to do it once.
+
+### The owner's galaxy prototype, and where it meets this game
+
+The owner has a separate, working galaxy prototype for iOS that no session here has seen: about a billion stars (the real disc thinned to a slice), realistic stellar evolution, and "a bit of actual stellar motion". It runs well on the phone, with small issues. It is the likely basis of galaxy version 2. The owner's worry, raised unprompted: friction where that galaxy meets the game built here. Ask to see it before designing against it.
+
+Thinking given to the owner, not yet answered:
+
+- **The friction is at one seam.** Every rule here treats a system as a fixed place with a fixed nature: ids are positional (`F0.120.-156.0` is a cell and an index), `generateSystem` takes no year, and charts, signals and held space all enumerate "what is near this point" by cell.
+- **Evolution fits the rules in principle.** A star's state is a function of its mass and age, so it is never stepped. What it costs: `system` becomes `system at year`, with rules for what a change of star does to bodies, seams, cultures and what the navigator remembers. Only rare, short-lived stars change within a voyage (a long one is 0.1 to 1 Myr), which is the right kind of rare. It also replaces the seeded alerts of slice 4 with real deaths, cheaply, because the stars that die young are few and bright.
+- **Motion is where it depends on how.** Random velocities of 20 to 30 km/s are a light-year per 10,000 years: the neighbourhood reshuffles within one long voyage, and "who is near here at year t" stops being a cheap exact lookup unless the generator is built for it. Pure differential rotation is exactly invertible (a ring's stars are at `angle0 + rate(R) * t`) and shears neighbours 10 ly apart in radius by only about 0.3 ly per Myr, so the local sky holds for a voyage while the galaxy winds up over hundreds of Myr. Recommended: rotation plus a small bounded wobble for the crowd, true orbits only for a few individually tracked landmarks.
+- **A billion fits.** It is the thin-slab idea above. In a flat disc it is about five times the demo's density one scale length out (roughly 0.4 systems per square light-year, neighbours about 1.5 ly apart), so ranges and travel need retuning, and 64-bit identity is a must.
+- **The contract to hold both galaxies to**: where is star `id` at year `t`; what is it like at year `t`; who is within `r` of a point at year `t`; a stable id to hash and to save under; and the rare bright things in a coarse cell. If the rules only ever ask those, the galaxy behind them can be swapped.
+- **Do now, cheaply**: give those questions a year in the TypeScript galaxy even though it ignores it, so that contact, trade and real time do not bake in more "the sky is fixed".
+- **Consequence for the port**: do not port this galaxy to Swift. Port the rules, and put them on the owner's galaxy behind the contract; this galaxy stays as the stand-in for tests.
+- **Retune, not redesign**: the census numbers (share inhabited, materials by kind of star, heavy elements within reach of the start, a start with neighbours) were tuned on this star mix. A realistic one is three-quarters red dwarfs. Rerun the census on it.
+- **To ask about the prototype**: how a star gets its identity; how it finds the stars near a point at a given time; whether motion is closed-form or stepped; flat or with depth; whether the arithmetic the rules depend on is done in doubles on the processor; whether it has gas; how stars are born and die over a billion years; what a cluster is.
+
+How to bring the two projects together (recommended to the owner, not yet agreed):
+
+- **The chat is not the asset; the repository is.** A session that reads this file and `media/concepts/ship-view.md` starts with what the long design chat knew. So combining the projects means putting these notes and the iOS project where one session reads both.
+- **One repository.** Bring the Xcode project into this one under `ios/`, keeping its history, and leave the text game at the root so that its build and the public page are untouched. The Swift rules package joins them at the port. Reasons: one roadmap and one `CLAUDE.md` for every session; the port is checked against transcripts recorded from the TypeScript version, which wants both in one checkout; the galaxy contract lives in one place.
+- **The catch is that this repository is public.** If the app's source should be private, the combined repository has to be private, and the public page then needs a paid GitHub plan or a small public repository holding only the built page. Before anything is brought in, check the Xcode project for signing identities, keys, large binaries and data with a licence.
+- **If two repositories are kept**: attach both to a session, keep the one roadmap here, and have the iOS project's `CLAUDE.md` point at it.
+- **Where work can happen**: a cloud session can do the text game, the rules, a plain Swift package and the notes. Building the app, the simulator and Metal need the owner's Mac: Claude Code run there inside the repository, or the Mac attached to a cloud session.
+- As of this note the iOS project is not in any repository a session here can reach, so it is local to the owner's Mac or private.
+
+The owner's leaning since, which is the better plan and replaces "one repository" above if they go ahead:
+
+- **The owner is moving to Claude Code on their Mac**, where a session can see both projects and build the app.
+- **A third, clean project for the real game, with the other two as references.** This repository stays the rules lab (and stays public, with the playable page); the galaxy prototype stays the galaxy lab; the new project is the product and can be private. It matches the owner's standing rule that earlier experiments are flavour, not spec.
+- What makes that work:
+  - **One brain per project.** The new project gets its own `CLAUDE.md` and design notes, seeded by distilling the decisions recorded here (the target game, the native stack, the ship view, the galaxy contract), not by copying this file's history. This file stays the lab's log.
+  - **The labs stay labs.** Rules are tried in the text game first and then ported, deliberately, not copied wholesale. The new project records which commit of this repository each port matches.
+  - **The port check crosses repositories without trouble**: the transcripts are files. A tool here writes them, and the new project keeps them as fixtures.
+  - **Layout on the Mac**: the three checkouts side by side, the session opened in the new project with the other two added as extra directories to read.
+- The third project is not needed until the port. Contact, trade and the real-time test are still done here first.
 
 ### What the plan has to respect
 
