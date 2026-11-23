@@ -54,8 +54,9 @@ What the owner has decided since:
 
 - **The player is the navigator.** Things happen in real time from the player's point of view, and that includes while the app is closed: time runs on under the Mind's standing orders.
 - **Cryo costs absence**, and nothing else. No mortal navigator, no succession: that idea is dropped, because the player is the navigator.
-- **Order of work**: contact, then trade, then anything else vital, and only then the jump to real time.
-- **A well-built native iOS app.** Not a website in a wrapper: the owner finds those limit the design. The choice still open is between Godot throughout and Swift with Apple's own frameworks (the owner named SwiftUI and Metal, and has complex pixel art in mind). See "The native app: thinking so far".
+- **Order of work**: contact, then trade, then anything else vital, then real time, tried in the text version first.
+- **A well-built native iOS app, Apple only, for good.** Not a website in a wrapper: the owner finds those limit the design. Swift throughout, SwiftUI for the interface, Metal for the pixel views. See "The native app".
+- **The ship view** as the owner pictures it: like Cities: Skylines or Ixion. Sectors are swapped in and out, people move about as tiny dots, things can be tapped, and refits show. So it is driven by the game's state, not hand-animated.
 - **The ideas below are all approved as ideas** and stay in the bank. None is scheduled.
 
 The ideas bank (offered in reply to the vision; the owner likes all of them):
@@ -68,16 +69,26 @@ The ideas bank (offered in reply to the vision; the owner likes all of them):
 - **The ship as a city**: policy and placement, not individuals. Emergencies are rare and have geography (which district took the breach). Generations turn over on long hauls, so the ship drifts.
 - **Smaller ideas**: the system resolving step by step during the braking burn; the braking plume as something others see and react to; letters at the speed of light; appointments kept across time dilation; deep orbits round black holes as places where outside time races; founding a colony or a daughter ship as the way a very large ship starts over, to be met again later; the Archive's relics as a museum deck with limited room.
 
-### The native app: thinking so far
+### The native app
 
-Recommended to the owner, not yet agreed:
+Agreed with the owner:
 
-- **Swift for the rules, SwiftUI for every panel, SpriteKit for the three pixel views** (galaxy, system, ship), with Metal shaders only where an effect needs one. Reasons: the game is mostly interface over a simulation; an idle game lives on what only native code reaches easily (local notifications as the Mind waking the navigator, a widget, a Live Activity for a burn); the glass look the owner wants is the system's own material in SwiftUI; and the two maps are small pictures generated from data, which need no engine.
-- **Godot wins instead** if the game should also run on other platforms, or if the ship view turns out to be a large hand-animated scene that wants an editor. A middle course exists: a Godot view embedded in the Swift app for that one scene. Check how mature that tooling is before counting on it.
-- **The rules move to Swift either way** (a widget has to be able to compute the ship's state without the app). Port them faithfully first, checked against transcripts recorded from the TypeScript version on several seeds; then do galaxy version 2 in Swift, where 64-bit integers are native. The port throws saves away once, and so does version 2: do them together.
-- **Keep the rules a plain Swift package** with no Apple frameworks in it, so that its tests, the bot and the census can still run in a cloud session on Linux. The app around it needs Xcode on the owner's Mac.
-- **Before any of that**, in TypeScript, where trying things is cheapest: split rules from prose in `game.ts` (typed actions in, typed events out, the text log as one reader of them), and replace `stay` by a clock that jumps from event to event, so that weeks away cost one calculation. That split is the blueprint for the port. Whether real time is then tried in text first or straight in the app is for the owner to say.
+- **Swift for the rules, SwiftUI for every panel, Metal for the three pixel views** (galaxy, system, ship). Not Godot: the game is mostly interface over a simulation, the glass look is the system's own material in SwiftUI, and an idle game lives on what native code reaches easily (local notifications as the Mind waking the navigator, a widget, a Live Activity for a burn). Not SpriteKit either: the owner will not build on something Apple has left untouched for so long, and the ship view as described needs little that SpriteKit would have given.
+- **Real time is tried in the text version first**, after trade.
+
+How to build it, as proposed (details open until the work starts):
+
+- **The renderer stays small and is ours.** One pipeline that draws instanced, textured quads from a sprite atlas with hard pixels at whole-number scales: sectors, bodies, shuttles and the dots are all that. One full-screen pass for pictures generated from data (the gas, the star field) and for the glass that shows the map beneath it at twice the pixel size. Nothing else until something needs it.
+- **Draw on demand.** The view redraws when the state changes, and at a low rate while dots are moving. An idle game should not cost battery to look at.
+- **Tapping is worked out from the layout**, on the processor: sectors are rectangles and the game knows where they are.
+- **The dots are not simulated.** Where people are is a function of the sector's state, the seed and the time, like everything else about the world, so they cost nothing in the save and nothing while the app is closed.
+- **Decide the pixel grid early** (how many screen points to one art pixel, and the palette), because every piece of art depends on it.
+- **The rules move to Swift** (a widget has to be able to compute the ship's state without the app). Port them faithfully first, checked against transcripts recorded from the TypeScript version on several seeds; then do galaxy version 2 in Swift, where 64-bit integers are native. The port throws saves away once, and so does version 2: do them together.
+- **Keep the rules a plain Swift package** with no Apple frameworks in it, so that its tests, the bot and the census can still run in a cloud session on Linux.
+- **Metal cannot be compiled or run in a cloud session.** The app and its shaders need Xcode on the owner's Mac: either the owner builds and reports, or the Mac is attached to the session so that builds and simulator screenshots can be made from here. Plan for that before the first rendering work.
+- **Before any of that**, in TypeScript, where trying things is cheapest: split rules from prose in `game.ts` (typed actions in, typed events out, the text log as one reader of them), and replace `stay` by a clock that jumps from event to event, so that weeks away cost one calculation. That split is the blueprint for the port.
 - Order of drawing, when it comes: the text game running natively with notifications; then the system map; then the ship; then the galaxy.
+- Offered, not taken up yet: a small early spike on the owner's Mac (the existing galaxy map and the glass-over-pixels effect in a bare Metal view inside SwiftUI) to have the look in hand long before the port.
 
 ## The slice plan
 
