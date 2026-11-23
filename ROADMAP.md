@@ -322,6 +322,22 @@ Three things stand between the demo and a full-size galaxy, and each of them cha
 
 Version 2 throws every voyage away. That is acceptable during testing; it is the reason to do it once.
 
+### The owner's galaxy prototype, and where it meets this game
+
+The owner has a separate, working galaxy prototype for iOS that no session here has seen: about a billion stars (the real disc thinned to a slice), realistic stellar evolution, and "a bit of actual stellar motion". It runs well on the phone, with small issues. It is the likely basis of galaxy version 2. The owner's worry, raised unprompted: friction where that galaxy meets the game built here. Ask to see it before designing against it.
+
+Thinking given to the owner, not yet answered:
+
+- **The friction is at one seam.** Every rule here treats a system as a fixed place with a fixed nature: ids are positional (`F0.120.-156.0` is a cell and an index), `generateSystem` takes no year, and charts, signals and held space all enumerate "what is near this point" by cell.
+- **Evolution fits the rules in principle.** A star's state is a function of its mass and age, so it is never stepped. What it costs: `system` becomes `system at year`, with rules for what a change of star does to bodies, seams, cultures and what the navigator remembers. Only rare, short-lived stars change within a voyage (a long one is 0.1 to 1 Myr), which is the right kind of rare. It also replaces the seeded alerts of slice 4 with real deaths, cheaply, because the stars that die young are few and bright.
+- **Motion is where it depends on how.** Random velocities of 20 to 30 km/s are a light-year per 10,000 years: the neighbourhood reshuffles within one long voyage, and "who is near here at year t" stops being a cheap exact lookup unless the generator is built for it. Pure differential rotation is exactly invertible (a ring's stars are at `angle0 + rate(R) * t`) and shears neighbours 10 ly apart in radius by only about 0.3 ly per Myr, so the local sky holds for a voyage while the galaxy winds up over hundreds of Myr. Recommended: rotation plus a small bounded wobble for the crowd, true orbits only for a few individually tracked landmarks.
+- **A billion fits.** It is the thin-slab idea above. In a flat disc it is about five times the demo's density one scale length out (roughly 0.4 systems per square light-year, neighbours about 1.5 ly apart), so ranges and travel need retuning, and 64-bit identity is a must.
+- **The contract to hold both galaxies to**: where is star `id` at year `t`; what is it like at year `t`; who is within `r` of a point at year `t`; a stable id to hash and to save under; and the rare bright things in a coarse cell. If the rules only ever ask those, the galaxy behind them can be swapped.
+- **Do now, cheaply**: give those questions a year in the TypeScript galaxy even though it ignores it, so that contact, trade and real time do not bake in more "the sky is fixed".
+- **Consequence for the port**: do not port this galaxy to Swift. Port the rules, and put them on the owner's galaxy behind the contract; this galaxy stays as the stand-in for tests.
+- **Retune, not redesign**: the census numbers (share inhabited, materials by kind of star, heavy elements within reach of the start, a start with neighbours) were tuned on this star mix. A realistic one is three-quarters red dwarfs. Rerun the census on it.
+- **To ask about the prototype**: how a star gets its identity; how it finds the stars near a point at a given time; whether motion is closed-form or stepped; flat or with depth; whether the arithmetic the rules depend on is done in doubles on the processor; whether it has gas; how stars are born and die over a billion years; what a cluster is.
+
 ### What the plan has to respect
 
 - **Contact and trade (slice 2 steps 2 and 3).** Standing with a culture, debts, tolls paid, what they wanted: all of it belongs on the `met` entry and dies with it. Nothing about a culture may be stored anywhere that outlives `until`. Prices and wants should be a function of (culture, year), like everything else about them, with only the navigator's own dealings saved.
