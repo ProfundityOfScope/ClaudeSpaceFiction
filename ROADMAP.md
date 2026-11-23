@@ -8,9 +8,9 @@ A text prototype of the game Lightspeed: a forever cruise on a relativistic worl
 
 ## Where things stand
 
-- `main` = slice 1, onboarding and tuning, the charts, slice 2 step 1 (other people, ruins, relics) and the media folder. `v0.1.0` tags slice 1 (commit 8461d87). Suggested to the owner: tag today's `main` `v0.1.1` if they want a marker, and keep `v0.2.0` for when contact and trade are in.
+- `main` = slice 1, onboarding and tuning, the charts, slice 2 step 1 (other people, ruins, relics), the media folder, materials, the first round of the scale test, and arriving as a sentence from the Mind with no separate sweep. `v0.1.0` tags slice 1 (commit 8461d87). Suggested to the owner: tag `main` `v0.1.1` if they want a marker, and keep `v0.2.0` for when contact and trade are in.
 - Public page: GitHub Pages serves `main` / `docs/`. Dev preview: a private Artifact named "Lightspeed", republished from `dist/artifact.html` (find it in the artifact list; pass its URL to update it in place).
-- Current branch of work: `claude/isru`, materials: built and in a pull request, together with the first round of work from the scale test (see "The scale test" below) and the folding of the sweep into arriving. The owner pulled materials ahead of contact so that cultures can want different things. Next: slice 2 step 2 (contact), then step 3 (trade).
+- Current branch of work: `claude/target-game`, which so far holds only the notes under "Where this is going". Next to build, unless the owner redirects: slice 2 step 2 (contact), then step 3 (trade).
 - Not yet heard: how the onboarding, the economy burn, the three charts and the reach line played. Ask.
 
 ## What the owner wants (their steers, in order of weight)
@@ -34,6 +34,31 @@ A text prototype of the game Lightspeed: a forever cruise on a relativistic worl
 Working with the owner: fluent in scientific Python, new to TypeScript and web builds. Wants things physically motivated, easy to follow and concisely documented. Prefers short summaries and being told what to look for when testing. Often plays on a phone, so check phone width.
 
 Reactions to slice 1 so far: finding the worked stone at Ember 61 was the high point; the Mind's remarks landed well; working out the commands took a minute.
+
+## Where this is going: the phone game
+
+The owner's description of the target, given once the text version had become fun to play. The text prototype stays the place where rules are tried; this is what they are being tried for.
+
+- **A visual phone game, away from the terminal entirely.** The Duo concept in `media/` is the first sketch of how it looks.
+- **Idle and incremental, in real time.** There will be no `stay 30`: the player actually waits.
+- **So the navigator needs things to do** while parked and while under way. That is the gap to design for.
+- **What we have is the bones** of the loop where the ship deals with the world, and the roadmap holds the premises for much of the rest.
+
+Three features the owner named, with what inspired each:
+
+1. **Moving the ship within a system**: nearer to a mining site; to a station for a meeting or faster repairs; out of the path of a coronal mass ejection; sometimes to investigate an anomaly. (Ixion.)
+2. **Cryo for the navigator, at some cost**: time passes faster while parked, and micromanagement is given up for the duration. It also makes trips subjectively shorter. (House of Suns.)
+3. **Managing the ship itself, small and large**: in the manner of FTL and Barotrauma but on a bigger scale; Space Haven for the look; the population handled more like a city in Cities: Skylines, complicated by its being a giant spaceship.
+
+Offered to the owner in reply, none of it decided. Do not build any of it without a yes.
+
+- **The fiction already is the idle loop.** The game opens with "You asked to be woken when there was something to decide." A notification is the Mind waking the navigator; being away is being asleep; the Mind runs standing orders meanwhile and reports on waking. The logic that drives the buttons and the bot (`suggestions`, `refitAim`) is the start of those standing orders.
+- **Three scales, one of them home.** The ship is the thing tended for ever (the incremental core); a system is a season (a stop that feeds and changes the ship); the galaxy is the long game. The refit tracks become places on a cutaway of the ship; the five materials are what a city aboard would consume.
+- **Knowledge resolves with distance, at every scale.** Already true from light-years (the chart), on approach (the Mind's sentence) and in orbit (the survey). In-system movement extends it: go nearer, see more.
+- **In-system movement as places, not free flight**: a handful of spots to park per system, each with a transit cost, and work that goes faster the nearer the ship is. Hazards have a forecast and a geometry (flares from red dwarfs, a giant's radiation belts, a pulsar's beam).
+- **Cryo's cost is absence**: defaults decide what the navigator would have decided, standing aboard decays, and a term once begun is costly to break. Offered as an alternative or an addition: the navigator has a finite waking life, cryo spares it, and navigators succeed one another.
+- **Other ideas floated**: the system resolving step by step during the braking burn; the braking plume as something others see and react to; letters at the speed of light; appointments kept across time dilation; deep orbits round black holes as places where outside time races; founding a colony or a daughter ship as the way a very large ship starts over, to be met again later; the Archive's relics as a museum deck with limited room.
+- **Getting there**: split rules from prose in `game.ts` (typed actions in, typed events out, the text log as one reader of them); replace `stay` by a clock that jumps from event to event, so that weeks away cost one calculation; then try, in text, a live clock with standing orders and cryo, then places within a system, then a small population model. Draw the system map first, the ship second, the galaxy third.
 
 ## The slice plan
 
