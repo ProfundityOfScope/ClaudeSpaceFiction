@@ -119,7 +119,7 @@ function begin(seed: number, fresh = false) {
     }
   }
   if (resumed) {
-    print([{ k: 'dim', s: 'Voyage resumed.' }, ...game.exec('look').slice(1)]);
+    print([{ k: 'dim', s: 'Voyage resumed.' }, ...game.exec('system').slice(1)]);
   } else {
     game = Game.fresh(seed);
     const notice: Out[] = outdated ? [{ k: 'dim', s: 'The galaxy has changed since your last voyage was saved, so that one could not be resumed. This is a new one.' }] : [];
@@ -171,7 +171,7 @@ $('load').addEventListener('click', () => {
     write('lightspeed.last', String(game.state.seed));
     openMenu(false);
     log.replaceChildren();
-    print([{ k: 'dim', s: 'Voyage loaded.' }, ...game.exec('look').slice(1)]);
+    print([{ k: 'dim', s: 'Voyage loaded.' }, ...game.exec('system').slice(1)]);
     refresh();
   } catch (error) {
     note.textContent = String(error).includes('older version')

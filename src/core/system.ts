@@ -5,6 +5,7 @@
  * Visiting a system twice, or after reloading a save, gives the same place.
  */
 import { K, Stream, strHash } from './rng.ts';
+import { ISRU, type Material } from './config.ts';
 import type { Galaxy, SysRef } from './galaxy.ts';
 import { FEATURES, type FeatureDef } from './features.ts';
 import { brightName, catalogueCode } from './words.ts';
@@ -108,6 +109,14 @@ const YOUNG_MIX: Mix[] = [
   { O: 40, RSG: 30, WR: 18, PSR: 8, MAG: 4 },
 ];
 
+/** Something that can be mined from a body: a material, how rich it is, and how much comes easily. */
+export interface Seam {
+  material: Material;
+  grade: 1 | 2 | 3;
+  /** Units taken at which the seam is down to about a third of its first rate. */
+  size: number;
+}
+
 export interface Body {
   /** 0 is the star; planets and belts count outward from 1. */
   n: number;
@@ -115,10 +124,13 @@ export interface Body {
   au: number;
   moons: number;
   rings: boolean;
-  /** Richness 0..3 for scooping, cutting ice and mining. */
+  /** Richness 0..3 for scooping fuel and cutting ice for the shield. */
   fuel: number;
   ice: number;
-  ore: number;
+  /** What can be mined here for the hold. */
+  seams: Seam[];
+  /** Work here costs the ship something: heat wears the hull, radiation the shield. */
+  hot?: 'heat' | 'radiation';
 }
 
 export interface Discovery {
@@ -161,8 +173,9 @@ function zoneTable(star: StarKind, au: number, warm: number, snow: number, giant
   return { gas: 34 * giants, icegiant: 24, ice: 22, belt: 8, dwarf: 12 };
 }
 
-function makeBody(n: number, kind: BodyKind, au: number, feh: number, snow: number, rng: Stream): Body {
-  const b: Body = { n, kind, au, moons: 0, rings: false, fuel: 0, ice: 0, ore: 0 };
+/** A body, and how rich its rock is in metal (0..3), which seeds its metal seam. Every draw here is in the order it always was, so bodies do not change. */
+function makeBody(n: number, kind: BodyKind, au: number, feh: number, snow: number, rng: Stream): { body: Body; ore: number } {
+  const b = { n, kind, au, moons: 0, rings: false, fuel: 0, ice: 0, ore: 0, seams: [] as Seam[] };
   switch (kind) {
     case 'gas':
       b.moons = Math.round(rng.range(0, 16));
@@ -206,7 +219,82 @@ function makeBody(n: number, kind: BodyKind, au: number, feh: number, snow: numb
       b.ore = rng.chance(0.4) ? 2 : 1;
       break;
   }
-  return b;
+  const { ore, ...body } = b;
+  return { body, ore };
+}
+
+/** What can be mined from a body, by the kind of body and the kind of star it circles. */
+function seamsFor(b: Body, ore: number, star: StarKind, feh: number, snow: number, rng: Stream): Seam[] {
+  const seams: Seam[] = [];
+  const add = (material: Material, grade: number) => {
+    if (grade < 1) return;
+    const [lo, hi] = ISRU.SIZE[material];
+    seams.push({ material, grade: clamp(Math.round(grade), 1, 3) as 1 | 2 | 3, size: Math.round(rng.range(lo, hi)) });
+  };
+  const fierce = star === 'PSR' || star === 'MAG' || star === 'BH';
+  switch (b.kind) {
+    case 'belt':
+      add('metals', ore);
+      // Beyond the snow line a belt keeps its ices and its carbon.
+      if (rng.chance(b.au > snow ? 0.45 : 0.2)) add('carbon', rng.chance(0.3) ? 2 : 1);
+      if (b.au > snow) add('volatiles', 1);
+      break;
+    case 'scorched':
+      // Stripped toward its core: richer than ordinary rock, and richer still if it is close enough to be hot work.
+      add('metals', b.hot ? ore + 1 : ore);
+      break;
+    case 'rocky':
+    case 'desert':
+      add('metals', ore);
+      break;
+    case 'ocean':
+      add('volatiles', 2);
+      break;
+    case 'ice':
+      add('volatiles', b.ice);
+      if (ore) add('metals', 1);
+      if (rng.chance(0.25)) add('carbon', 1);
+      break;
+    case 'dwarf':
+      add('volatiles', 1);
+      add('metals', 1);
+      if (rng.chance(0.3)) add('carbon', 1);
+      break;
+    case 'comets':
+      add('volatiles', b.ice);
+      if (rng.chance(0.5)) add('carbon', rng.chance(0.3) ? 2 : 1);
+      break;
+    case 'gas':
+      add('isotopes', rng.chance(0.3) ? 2 : 1);
+      break;
+    case 'icegiant':
+      // A shallower well and a colder one: the better place for deuterium and helium-3.
+      add('isotopes', rng.chance(0.5) ? 3 : 2);
+      if (rng.chance(0.2)) add('carbon', 1);
+      break;
+    case 'star':
+      // Old giant stars shed carbon dust; a black hole's disc and a pulsar's debris hold what the explosion made.
+      if (star === 'RG') add('carbon', 1);
+      if (star === 'RSG' || star === 'WR') add('carbon', 2);
+      if (fierce) add('heavy', star === 'BH' ? 2 : rng.chance(0.4) ? 2 : 1);
+      break;
+  }
+  if (b.kind === 'belt' || b.kind === 'scorched' || b.kind === 'dwarf') {
+    if (fierce) add('heavy', rng.chance(0.5) ? 3 : 2);
+    else if (star === 'WD' && rng.chance(0.35)) add('heavy', 1);
+    else if (b.kind === 'belt' && feh > 0.3 && rng.chance(0.15)) add('heavy', 1);
+  }
+  return seams;
+}
+
+/** Whether working at a body costs the ship something. Not many do. */
+function hotFor(b: Body, star: StarKind, warm: number): Body['hot'] {
+  if (star === 'PSR' || star === 'MAG' || star === 'BH') return 'radiation';
+  if (b.kind === 'star') return star === 'WR' ? 'radiation' : undefined;
+  // Only the closest-in rock and giants: about one system in ten has such a body.
+  if (b.kind === 'scorched' && b.au < 0.11 * warm) return 'heat';
+  if (b.kind === 'gas' && b.au < 0.12 * warm) return 'heat';
+  return undefined;
 }
 
 function featureFits(def: FeatureDef, body: Body, star: StarKind): boolean {
@@ -242,16 +330,27 @@ export function generateSystem(galaxy: Galaxy, ref: SysRef): StarSystem {
   const snow = 2.7 * warm;
   // Giant planets follow metallicity: metal-rich stars have more of them.
   const giantBoost = star === 'BD' ? 0 : clamp(Math.pow(10, feh), 0.3, 2.5);
-  const bodies: Body[] = [{ n: 0, kind: 'star', au: 0, moons: 0, rings: false, fuel: 0, ice: 0, ore: 0 }];
+  const bodies: Body[] = [{ n: 0, kind: 'star', au: 0, moons: 0, rings: false, fuel: 0, ice: 0, seams: [] }];
+  const ores = [0];
+  const push = (made: { body: Body; ore: number }) => {
+    bodies.push(made.body);
+    ores.push(made.ore);
+  };
   let au = warm * brng.range(0.08, 0.3);
   for (let i = 0; i < count; i++) {
     const kind = brng.weighted(zoneTable(star, au, warm, snow, giantBoost));
-    bodies.push(makeBody(bodies.length, kind, au, feh, snow, brng));
+    push(makeBody(bodies.length, kind, au, feh, snow, brng));
     au *= brng.range(1.45, 2.4);
   }
   const haloChance = info.remnant ? 0.35 : info.lum > 100 ? 0.3 : 0.75;
   if (brng.chance(haloChance)) {
-    bodies.push(makeBody(bodies.length, 'comets', Math.max(au * 4, snow * 15, 30), feh, snow, brng));
+    push(makeBody(bodies.length, 'comets', Math.max(au * 4, snow * 15, 30), feh, snow, brng));
+  }
+
+  // ---- what can be mined, on its own stream so that nothing above shifts ----
+  for (const b of bodies) {
+    b.hot = hotFor(b, star, warm);
+    b.seams = seamsFor(b, ores[b.n], star, feh, snow, new Stream(seed, K.SEAM, h, b.n));
   }
 
   // ---- features ----
@@ -306,7 +405,7 @@ export function generateSystem(galaxy: Galaxy, ref: SysRef): StarSystem {
   else name = `${galaxy.sector(ref.x, ref.y).split(' ')[0]} ${catalogueCode(nrng)}`;
 
   const giants = bodies.filter((b) => b.kind === 'gas' || b.kind === 'icegiant').length;
-  const dust = bodies.reduce((m, b) => (b.kind === 'belt' || b.kind === 'comets' ? Math.max(m, b.ore, b.ice) : m), 0);
+  const dust = bodies.reduce((m, b) => (b.kind === 'belt' || b.kind === 'comets' ? Math.max(m, ores[b.n], b.ice) : m), 0);
 
   return { ref, name, star, companion, feh, bodies, discoveries: keyed.map((k) => k.d), giants, dust, anomaly };
 }

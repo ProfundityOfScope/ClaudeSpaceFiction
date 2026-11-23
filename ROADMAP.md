@@ -8,10 +8,10 @@ A text prototype of the game Lightspeed: a forever cruise on a relativistic worl
 
 ## Where things stand
 
-- `main` = slice 1, the video renderer, onboarding and tuning, and the pixel maps. `v0.1.0` tags slice 1 (commit 8461d87). Nothing since has been tagged; suggest `v0.1.1` or fold it into `v0.2.0`.
+- `main` = slice 1, onboarding and tuning, the charts, slice 2 step 1 (other people, ruins, relics) and the media folder. `v0.1.0` tags slice 1 (commit 8461d87). Suggested to the owner: tag today's `main` `v0.1.1` if they want a marker, and keep `v0.2.0` for when contact and trade are in.
 - Public page: GitHub Pages serves `main` / `docs/`. Dev preview: a private Artifact named "Lightspeed", republished from `dist/artifact.html` (find it in the artifact list; pass its URL to update it in place).
-- Current branch of work: `claude/civilisations` (slice 2). Step 1 of three is built and in a pull request: cultures exist and can be seen, ruins can be read, relics can be carried. **Stop here** until the owner has judged how busy the galaxy feels; then step 2 (contact and consequences), then step 3 (trade).
-- Not yet heard: how the onboarding, the economy burn and the gas views played. Ask.
+- Current branch of work: `claude/isru`, materials: built and in a pull request, together with the first round of work from the scale test (see "The scale test" below) and the folding of the sweep into arriving. The owner pulled materials ahead of contact so that cultures can want different things. Next: slice 2 step 2 (contact), then step 3 (trade).
+- Not yet heard: how the onboarding, the economy burn, the three charts and the reach line played. Ask.
 
 ## What the owner wants (their steers, in order of weight)
 
@@ -27,6 +27,9 @@ A text prototype of the game Lightspeed: a forever cruise on a relativistic worl
 - **Civilisations have extent, but small.** Even a powerful one should not control much.
 - **Demo galaxy small, design scalable.** A fraction of real star counts is fine if the systems scale.
 - **Earlier experiments are flavour, not spec.** Borrow the universe, not the implementations.
+- **The scale test.** Ask of every mechanic, built or planned: "does this scale to 100 billion stars, 10000 trips, and 1 Gyr of time?" Not literally: the point is the endgame player who never stops. See "The scale test" below.
+- **Refits should keep going.** More tiers and a flatter curve, so that one can keep improving for a lot longer. Also offered: tiers that mix stats, or a late game that is about choosing between different kinds of engine (and so on) more than about climbing one ladder.
+- **The Mind's repetition is solved by volume.** A very large amount of written text, added over time. No cleverer mechanism is wanted.
 
 Working with the owner: fluent in scientific Python, new to TypeScript and web builds. Wants things physically motivated, easy to follow and concisely documented. Prefers short summaries and being told what to look for when testing. Often plays on a phone, so check phone width.
 
@@ -34,7 +37,7 @@ Reactions to slice 1 so far: finding the worked stone at Ember 61 was the high p
 
 ## The slice plan
 
-1. **Sweep, scan, jump.** Done. Refits were pulled forward into it.
+1. **Sweep, scan, jump.** Done. Refits were pulled forward into it. (The sweep has since been folded into arriving: see "Onboarding and tuning".)
 2. **Somebody's home.** Civilisations, ruins tied to them, contact, trade.
 3. **Other wakes.** Other ships, broadcasts, festivals, Lodestars, the navigator's marks.
 4. **Deep time.** Novae and supernova alerts, differences on revisits, the Mind's reckonings.
@@ -61,8 +64,12 @@ Two further items the owner named after play-test 1. They sit beside the slices;
 
 ### Onboarding and tuning (built, awaiting the owner's play-test)
 
-- **Views.** `look` is the system table plus what each crew is doing, with `c1` under the body crew 1 is working. `ops` is the work on offer. `ship` includes the refit table; `refits` is another word for it. These merges came out of the phone concept, where three panes covered what five commands did.
-- **Onboarding.** `guide` in the save is the step of a first-visit walkthrough; the lines are `GUIDE` in `mind.ts` and the logic is `Game.guide`. It reacts to what has happened, so steps taken out of order are skipped, and it ends at the first arrival. Saves without the field are never walked through. Also: `map`/`system` for `look`, a fixed closing set of buttons (look, ops, chart, ship, ask), and "did you mean" on near misses.
+- **Views.** `system` is the system table plus what each crew is doing, with `c1` under the body crew 1 is working. `ops` is the work on offer. `ship` includes the refit table; `refits` is another word for it. These merges came out of the phone concept, where three panes covered what five commands did.
+- **Onboarding.** `guide` in the save is the step of a first-visit walkthrough; the lines are `GUIDE` in `mind.ts` and the logic is `Game.guide`. It reacts to what has happened, so steps taken out of order are skipped, and it ends at the first arrival. Saves without the field are never walked through. Also: a fixed closing set of buttons (system, ops, chart, ship, ask), and "did you mean" on near misses.
+- **No separate sweep** (the owner's call, after the materials work). The reasoning: the ship would have looked the system over during the weeks of braking, so asking for a sweep on arrival was a step with no decision in it. `approach()` does what the sweep did for the books (the star's Archive credit); ruins and people are reported on arriving. `Memory.swept` and `visit.starShown` are gone: a remembered system is a swept one. The survey is unchanged: it still needs crews, closeness and time, and it is the only way to learn what a body is worth.
+- **Arriving is a sentence, not a table** (the owner's call, a day later: the first version printed the whole table on arrival and it was an info dump). The Mind sums the system up from what it saw on the way in: "Standard low-metallicity orange dwarf, one rock, one lovely gas giant system, a comet halo." The owner's wording was the model. `sketchSystem` in `mind.ts` builds it from the system: an opener for the commonest stars, a metallicity word, the star and any companion, then the bodies grouped by kind in the order they are met going outward, then "no giants" or "nothing in orbit" where true, and "something I cannot place" for an unresolved anomaly. The same place always gets the same sentence. The word lists (`PLAIN`, `FINE`, `ROCKS`) are the place to add variety.
+- **One breath on arriving.** The sentence is the whole of what the Mind says about a new place, with at most one thing joined to it: before it, a word on arriving (`arrive`) or on being back (`revisit`); or after it, what stands out (`firstSight`: an anomaly, an empty system, no giants, a rich one), in which case the sentence leaves that out. When there are people the sentence stands alone and the remark about them follows as before. The once-only remark about a new kind of star is on top.
+- **`system`** lays the place out: the table and what each crew is doing. `look`, `sweep`, `map`, `sys` and `l` are other words for it. It is the first button after an arrival, and the one command a new voyage asks for: the walkthrough's first step is `system`, which also fixes the play-test finding that the table was hard to find again.
 - **Burns.** Fuel is thrust squared times time under burn, so `burn eco` (a quarter thrust) costs roughly an eighth of the fuel for twice the time. `TRANSIT_WEAR` (1.5% hull per year under way) is the price of going slowly. The plot table now shows time for each burn and fuel, shield and hull on arrival.
 - **Gas.** The chart has a one-character column for the gas on the way to each star (`#` if a cloud lies anywhere across the line). The wide view of where the gas is has since become `chart far`; see Charts and map pictures.
 - **The Mind.** Comments only on the first unremarkable plot of a visit. Dissents change wording from the third, and go terse after four correct in a row (`streak`). Reckonings name the run. Refusals escalate (`refused`).
@@ -84,12 +91,65 @@ History, because it explains the shape of the code. First a 64-cell picture for 
 - **The picture's data is still made.** Every chart item carries `MapData` (96 cells a side: gas in 36 shades, stars, `held` space as a hull, `inner` box for the next zoom in). Nothing draws it now; it is there because it is exactly what an app's map would draw, and the tests keep it honest. The page's drawing code (`drawMap`) was removed in the commit that made this change and is in the history if wanted.
 - **Do not bring the picture back, or make any map interactive, without being asked.**
 
-### ISRU improvements: thinking so far
+### Materials (ISRU): what the owner decided, and the design
 
-- A first sketch, which the owner found too thin: three special materials as by-products of existing work. Metals from rich belts, isotopes from ice giants, exotics from the winds of unusual stars (giants, remnants, supergiants). Early refits need the local two; later levels need exotics, so they need a journey to a bright star on the chart.
-- What "more evolved" probably means: more kinds of place and material, extraction that differs by body (not one rate table), difficulty and yield that vary, possibly processing steps, and ore that runs out so a system is worked and then left.
-- Keep: no pile of new verbs if by-products and body properties can carry it; the chart's brightness tiers as the natural ladder of difficulty; refits gated by where the ship has been, not by waiting.
-- Ideas the owner offered that fit here or in trade: very rare finds that give temporary bonuses to ship systems, and items that can be sold.
+The owner chose the middle of three sizes offered ("places matter"), with these calls:
+
+- **Five materials**, not six: silicates are folded into metals.
+- **Seams thin out**, but not fast: it is still a whole system. Enough to be some incentive to move on.
+- **A living spacefaring culture has already thinned its own system's seams**, to various extents.
+- **Hot work** wears the ship. Not common, but something to be aware of.
+- Its own branch and pull request, before contact.
+
+The five, and where they come from:
+
+| Material | Short | Comes from | Wanted for |
+|---|---|---|---|
+| Volatiles | vol | comets, ice worlds, dwarfs: beyond the snow line | crews refit; trade |
+| Metals | met | belts, rocky and scorched worlds; richer where [Fe/H] is high | repairs, hold, tanks, hull |
+| Carbon | car | carbon-rich belts, comets, dwarfs, ice giant interiors, red giant winds | later hull; optics |
+| Isotopes | iso | giants, ice giants best | engine; tanks |
+| Heavy elements | hvy | debris round pulsars, magnetars, black holes; a trickle round white dwarfs | top engine and optics levels |
+
+Rules of the design:
+
+- **One hold, shared.** What to carry is a choice. `dump` throws stock overboard.
+- **`scoop` and `ice` stay as they are** (fuel and shield are the ship's own consumables). `mine N` fills the hold from a body's seams; `mine N car` picks a material.
+- **The survey reveals seams.** A body must be charted before it can be mined.
+- **Thinning**: a seam's rate falls with the amount taken, toward a floor, and what was taken is remembered per system in the save. A culture present in the system counts as having taken some already.
+- **The body matters**: free fall (belts, comets) is quick, deep gravity wells are slow.
+- **Hot work**: a few bodies (very close-in rock and giants, anything round a pulsar, magnetar or black hole) cost hull or shield for each day worked.
+- **Refits have recipes**: early levels need the common materials, later ones carbon and isotopes, the top ones heavy elements, so the far chart becomes a ladder.
+- Offered and liked, not yet built: very rare survey finds that boost a rate for a while (the owner's own idea from play-test 1).
+- Left for later: processing steps and equipment refits (the biggest of the three sizes); carrying volatiles to patch the shield in flight.
+
+### Materials, as built
+
+- **Where it lives.** `MATERIALS`, `MATERIAL` (short names), `ISRU` (every rate) and the refit `RECIPES` are in `config.ts`. Seams are part of a system: `Body.seams` and `Body.hot`, made in `seamsFor` and `hotFor` in `system.ts` on their own stream (`K.SEAM`), so the bodies themselves did not change. Bodies no longer have `ore`.
+- **A seam's rate** is `GRADE[grade] * WELL[kind of body] * (FLOOR + (1 - FLOOR) * exp(-taken / size))`. `taken` is what we have mined (`mem.taken["body:material"]`, saved, and counting for half as much after each `ISRU.RECOVER` = a million years: see "The scale test") plus what the people of the system have had (`workedByOthers`: by phase, halved for an outpost, between a fifth and all of that by a hash per seam). Ruins count as their makers did at the end; once the ruins are gone the seams are fresh again, which is not physics but matches everything else about cultures leaving no permanent mark.
+- **Commands.** `mine N` takes the richest seam; `mine N car` a named one (name, any prefix, or the short form); `mine N car 45` or `mine N 45` stops after that many units. `dump X [n]`. A body must be charted first; the star's own seam (red giant wind, a black hole's disc, pulsar debris) needs no survey. `ops` lists every open seam with its rate, and `thin` or `hot`.
+- **The table** shows what fits in 13 columns, rarest first; `ore?` until the body is charted.
+- **What crews are pointed at** (`suggestions`, which also drives the buttons and the bot): one refit at a time (`refitAim`: of those the Archive allows, the one this system can best supply and the hold is nearest to affording), plus metal to mend the hull. Each suggestion carries an amount. Without this the hold filled with stock for every refit at once and none could be paid for; the bot found that.
+- **Repairs** cost 1 metal per percent (was 1.5 of the old single material). With no metal at all the Wrights patch from scrap, slowly, up to 30%: that is what stops a wrecked ship being stranded where there is no metal.
+- **Hot work**: `HEAT` 0.06% of hull or `RADIATION` 0.15% of shield per crew-day. The Mind warns once a visit and recalls the crew at 45% hull.
+- **Saves are version 3**, stored leanly (see "The scale test").
+
+Numbers on the default seed:
+
+- Share of field systems with each material (any seam / grade 2 or better): volatiles 79% / 61%, metals 94% / 57%, carbon 42% / 12%, isotopes 37% / 16%, heavy 1.2% / 0.03%. Hot work somewhere in 11% of systems, and the only source of something in 2.6%.
+- From the start: carbon and isotopes are in the start system and next door; the nearest heavy elements are 15 ly off at a white dwarf; nothing of grade 2 within 120 ly. The top refit levels really do need a long trip.
+- Bot, 150 jumps on three seeds: no dead ends; hull healthy; tanks, optics, crews and hold reach their top level, engine 4 to 8 and hull 6 to 7, held back by heavy elements and carbon. First refit at the second system. A person plays far fewer jumps, so this is a ceiling, not a pace.
+
+Rough edges, left on purpose:
+
+- A culture's home world cannot be mined at all (as before), and its other seams are only thinned. Contact will decide what working in somebody's system costs.
+- Survey finds do not know about seams (a "nickel-iron body" find does not make a belt richer).
+- Thinning is hard to feel at the bot's pace: seams are sized so that a hold or two barely dents them. The dial is `ISRU.SIZE`.
+- The start system happens to have four of the five materials. Nothing guarantees that on other seeds.
+
+### Contact (slice 2 step 2): defaults the owner has agreed
+
+Build after materials. Terms on arrival by temperament (welcoming: free; proud: a toll; wary: a limited stay; reclusive: look but take nothing; hostile: leave). Comply or ignore; ignoring escalates. Agreed defaults: a toll is paid in materials the culture lacks; about ten days of warning, then a few percent of hull a day, so the Mind takes the conn after roughly a month; claimed space with nobody in it has no terms. The Mind's exit is at 10% hull, written as one function with a cutoff so a smarter rule can replace it.
 
 ### Ship politics: thinking so far
 
@@ -132,7 +192,7 @@ How it works, for whoever picks this up:
 - **A Reach's home** is the nearest world that could raise a people and that no single-world culture is using during the Reach's life. `frontier(c, year)` grows from home, holds, and falls back to a quarter during decline. An outpost lives from when the frontier reaches it until the frontier falls back past it, then is a ruin for a while.
 - **The people belong to the world.** The species sketch is seeded by the home system, not the era. A later culture there is the same kind of creature under a newer name, and the game says so if both are known.
 - **`Cultures` (in `civs.ts`)**: `presence(sys, year)` gives sites (home or outpost, living or ruined) and claims; `heard(sys, year, dist)` is what the light shows, so it asks about `year - dist`; `signals()` lists everything audible from a point; `byId` finds a culture again. All tunables are `CIV` in `config.ts`.
-- **In the game.** `takeNote('arrive' | 'sweep' | 'stay')` is the one place that reports on people: what became of those we knew, anyone new, and ruins once the system is swept. `meet`, `noticeRuin` and `finishRuin` do the rest. `scanTargets()` is the single list of things a deep scan can be pointed at (oddity hints and ruins). Crews take nothing from a living home world (`homes()`).
+- **In the game.** `takeNote('arrive' | 'stay')` is the one place that reports on people: what became of those we knew, anyone new, and ruins. `meet`, `noticeRuin` and `finishRuin` do the rest. `scanTargets()` is the single list of things a deep scan can be pointed at (oddity hints and ruins). Crews take nothing from a living home world (`homes()`).
 - **Saved**: `state.met` (cultures known, by id), `mem.seen` (who was here and in what phase, for telling the difference), `mem.sites` (ruins read), `ship.relics` as objects (what, whose, kind, year). Save version 2; older saves are refused and the page starts a new voyage with a line saying why.
 - **Seeing them**: a line under the heading; `^` on a body in the system table; a `^` column on the charts for signals (the name column shrank to 14 to fit); the edge of a spreading culture's space on the maps. The page draws all of that in `--ok` green. Unread ruins within planet-resolving range (10 ly times optics) carry the same `!` as oddities, and `scope` says which it is. That flag was Claude's suggestion after the owner asked where the nearest ruins were; they did not clearly ask for it, so check that they want it.
 - **Oddities**: the worked stone and the sea walls left the catalogue and are now ruins. The remaining made things are category `artefact`, all rarity 3, and carry `relic: { what, kind, chance }`.
@@ -168,12 +228,67 @@ Notes for step 2: terms attach where `meet` and `homes()` are. The emergency exi
 - **Marks**: stored with an expiry, affecting only their own system.
 - **Lodestars**: a fixed handful, kept by travellers for travellers: refits, archives, festival grounds.
 
+Each of these has to pass the scale test before it is built; what that asks is under "What the plan has to respect" below.
+
+## The scale test
+
+The owner's standing question for every mechanic: **"does this scale to 100 billion stars, 10000 trips, and 1 Gyr of time?"** It is not meant literally. It is a habit: picture the player who never stops, and check that the save, the charts and the fiction all still hold. The first full pass over the game was done while materials were in review, and this section is its result.
+
+### How each axis stands
+
+| Axis | Holds? | What sets the limit |
+|---|---|---|
+| 10,000 trips | Yes | The save: about 30 bytes for a system only passed through, 74 in a stress run that surveys and mines every stop (it was 165). 10,000 systems is well under 1 MB, written in a few milliseconds. The browser allows about 5 MB, so roughly 50,000 systems before something more is needed. |
+| 1 Gyr of time | For people, yes. For the sky, no. | History is never stepped, so any year costs the same to ask about, and long times print properly (`2.31 Gyr`). But stars, gas and clusters are the same at year one billion as at year zero. |
+| 100 billion stars | No | The disc is flat. At that count, one scale length out, there are 42.6 systems per square light-year against the demo's 0.084: about 13,000 within 10 ly. Also 32-bit hashes and too few names. See "Galaxy version 2". |
+
+### What was built for it (in the materials pull request)
+
+- **Seams recover.** What was taken from a seam counts for half as much after each `ISRU.RECOVER` (a million years), on the reasoning that impacts and collisions keep turning fresh material up. `mem.taken` is the amount as it stood at `mem.last`; `recovery(mem)` in `game.ts` gives the share that still counts. On arriving at a known system the decay is settled into the stored amounts before the visit is restamped, and anything under one unit is dropped.
+- **Peoples of whom nothing is left are forgotten.** Each entry in `state.met` carries `until`, the year by which even their ruins will be gone (`born + life + CIV.RUIN_MAX`). The list is capped at `MEMORY.PEOPLES` (300): past that, the longest-vanished are dropped. Nobody is dropped while anything of theirs still stands. `stats.peoples` counts everyone ever known, and that is what `finds` reports.
+- **Their name outlives the list.** A living culture noted in a system has its title stored in that system's note (`SiteNote.title`), so "Nothing is left of the Qumaix" can still be said after they have left `met`.
+- **The chart no longer walks the dead.** `heldPoints` skips anyone past `until` without looking them up, and skips a culture that the light now arriving shows to have ended, before asking the galaxy for its systems.
+- **A leaner save.** `packState` and `unpackState` in `state.ts`: a remembered system stores only what differs from a fresh memory, and loading puts the rest back. Nothing is rounded there, so `load(save)` gives back the same state. Dates are rounded to a hundredth of a year when they are written (`stamp`).
+- **A tidy pass** every `MEMORY.TIDY` (25) jumps, on arrival: recovered seams everywhere, the list of peoples, and the Mind's note of which stars it has asked to visit (the last 40 are kept).
+- **Long times print.** `clock`, `span` and `spanWords` go up to billions of years without widening.
+
+Honest limits of that work: at the bot's pace 10,000 jumps cover something like a hundred thousand to a million years, so seam recovery is about the fiction being right in deep time, not about bytes. The bytes come from the leaner format.
+
+### Still open, small
+
+- **Remembered systems are never forgotten.** Fine to about 50,000. Past that: forget plain systems (unnamed, nothing unread, not visited for a very long time), or move the save to IndexedDB. Do this when someone gets near, not before.
+- **Relics pile up in the hold list** (a few per hundred jumps). Trade (slice 2 step 3) should give them somewhere to go; if it does not, cap the list.
+- **The journal** keeps its last 300 lines, and the Mind's used-line lists reset per pool, so neither grows.
+
+### Galaxy version 2 (one deliberate re-roll, later)
+
+Three things stand between the demo and a full-size galaxy, and each of them changes every system in the sky when it is fixed. So they are to be done together, once, as "galaxy version 2", and not one at a time. Until then, do not make any change that re-rolls the sky for scale reasons alone.
+
+- **Thickness.** The decision to take: a true third coordinate (charts become a slice or a projection, distances are 3D, the phone map needs a way to show depth), or keep the map flat and treat it as a thin slab through a thick disc, so that only a small share of the hundred billion are ever "in the plane". The slab is far cheaper and keeps every chart as it is; it is the one to try first. The owner has not chosen; ask when version 2 is scheduled.
+- **64-bit identity.** A system's contents come from `strHash(id)`, which is 32 bits. With three million systems there are already about a thousand pairs somewhere in the sky that roll exactly the same dice; with a hundred billion every system would have about twenty such twins. Use two 32-bit words (or hash the cell coordinates directly) for systems, cultures and anything else drawn per system.
+- **Names that scale.** Cluster and sector names are drawn from 145 nouns, which repeat long before a full galaxy is filled. Names need to be composed (syllables, or noun plus qualifier by region) so that nearby things never share one.
+- **Worth doing in the same pass:** anything else that changes what the dice pick, such as new `FEATURES` entries held back for the purpose, and re-tuning densities for the new geometry (the census tool is the check).
+
+Version 2 throws every voyage away. That is acceptable during testing; it is the reason to do it once.
+
+### What the plan has to respect
+
+- **Contact and trade (slice 2 steps 2 and 3).** Standing with a culture, debts, tolls paid, what they wanted: all of it belongs on the `met` entry and dies with it. Nothing about a culture may be stored anywhere that outlives `until`. Prices and wants should be a function of (culture, year), like everything else about them, with only the navigator's own dealings saved.
+- **Ships (slice 3).** Seeded itineraries are right, but a ship cannot be seeded once for the whole galaxy and all time: seed them per region and per era, like the spreading cultures, so that a chart asks only the cells around it. Remember a ship only once met, with an end date.
+- **Lodestars.** "A fixed handful" does not survive a hundred billion stars or a billion years. Make them a rule: about one per so many coarse cells, each lasting a long era and then succeeded by another. Permanent on the scale of a voyage, not of the galaxy.
+- **Marks and alerts.** Already designed with an expiry and with pin-on-commitment. Keep it so; cap how many can be open at once.
+- **Deep time (slice 4).** The sky has to age the way history does: a star's state as a function of (seed, system, epoch), never stepped. Long epochs (stars forming and dying, clusters dispersing) are what make a billion years look different from a thousand.
+- **Refits** (the owner's steer). There are 38 upgrades in all (ten each for engine and hull, three to six on the other tracks), and the bot tops four of the six tracks within 150 jumps. Wanted: many more tiers on a flatter curve, so that improvement continues for thousands of jumps. Today each level multiplies its stat by about 1.6, materials cost `90 * 1.35^level` and the Archive needed grows by 1.7 a level; smaller steps and gentler growth in all three is the starting point. Then, past some level, sideways choices in place of more of the same: engine kinds with different trades (thrust against fuel, against gas tolerance, against wear), and tiers that mix two stats. A choice that can be re-made later fits "nothing lasts for ever" better than a ladder with a top. Design this with the owner before building; it touches `REFITS`, `RECIPES` and `refitCost` in `config.ts`.
+- **The Mind** (the owner's steer). Lines are picked without repeats until a pool is used up, so variety is purely the size of the pools in `mind.ts`. Grow them steadily: every piece of work adds lines, and the pools the bot shows repeating most are the ones to feed first (`npm run bot` prints the most repeated sentences). Lines that take variables go further than fixed ones.
+
 ## Rules that keep the world stable
 
 - Integer hashing only. One substream per purpose. Append to `K`, never renumber.
 - Nothing derived is stored. The save holds what the player did; the galaxy is rebuilt from the seed.
-- A save is `State` with `v: SAVE_VERSION` (now 2). Adding a field needs a default on load. Changing what a field means needs a version bump, which throws old voyages away; the owner has said that is fine during testing.
+- A save is `State` with `v: SAVE_VERSION` (now 3). Adding a field needs a default on load. Changing what a field means needs a version bump, which throws old voyages away; the owner has said that is fine during testing.
 - History is never stepped. Who is home is a function of (seed, system, year); keep it that way, so a save never has to hold a simulation.
+- Everything in the save is bounded or expires. Before adding a list or a record, say what caps it or when each entry lapses, and put the pruning in `tidy`.
+- Changes that re-roll the sky for the sake of scale wait for galaxy version 2.
 - Adding an entry to `FEATURES` changes what the dice pick, so surveyed systems can change. Acceptable now; say so when it happens. The same goes for the tables in `cultures.ts`: a new entry renames or redescribes cultures already met.
 - Fixed-width output stays within 42 columns (there is a test).
 

@@ -2,8 +2,8 @@
  * Play in a terminal, or run a script of commands.
  *
  *   node tools/play.ts                      interactive
- *   node tools/play.ts sweep ops "stay 30"  run these commands and exit
- *   node tools/play.ts --seed 7 sweep       a different galaxy
+ *   node tools/play.ts system ops "stay 30" run these commands and exit
+ *   node tools/play.ts --seed 7 system      a different galaxy
  */
 import { createInterface } from 'node:readline';
 import { Game, type Out } from '../src/core/game.ts';

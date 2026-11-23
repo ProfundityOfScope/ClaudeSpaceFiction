@@ -20,7 +20,14 @@ export function span(years: number): string {
   if (years < 10) return `${years.toFixed(1)} yr`;
   if (years < 1000) return `${Math.round(years)} yr`;
   if (years < 1e6) return `${(years / 1000).toFixed(years < 1e4 ? 2 : 1)} kyr`;
-  return `${(years / 1e6).toFixed(2)} Myr`;
+  return aeons(years);
+}
+
+/** A million years and up, never wider than nine characters: "1.20 Myr", "340.0 Myr", "2.31 Gyr". */
+function aeons(years: number): string {
+  if (years < 1e8) return `${(years / 1e6).toFixed(2)} Myr`;
+  if (years < 9.9995e8) return `${(years / 1e6).toFixed(1)} Myr`;
+  return `${(years / 1e9).toFixed(2)} Gyr`;
 }
 
 /** The same, written out for the Mind to say: "eight months", "3.4 years". */
@@ -31,7 +38,10 @@ export function spanWords(years: number): string {
   if (years < 2) return `${Math.round(years * 12)} months`;
   if (years < 10) return `${years.toFixed(1)} years`;
   if (years < 1000) return `${Math.round(years)} years`;
-  return `${Math.round(years).toLocaleString('en-US')} years`;
+  if (years < 1e5) return `${Math.round(years).toLocaleString('en-US')} years`;
+  if (years < 999500) return `${Math.round(years / 1000)} thousand years`;
+  if (years < 9.995e8) return `${Number((years / 1e6).toPrecision(3))} million years`;
+  return `${Number((years / 1e9).toPrecision(3))} billion years`;
 }
 
 /** A distance in light-years, in at most five characters. */
@@ -51,10 +61,10 @@ export function capital(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-/** A clock reading in years: "3.1 yr", "1,204 yr", "12.4 kyr". */
+/** A clock reading in years: "3.1 yr", "1,204 yr", "12.4 kyr", "1.20 Myr", "2.31 Gyr". */
 export function clock(years: number): string {
   if (years < 100) return `${years.toFixed(1)} yr`;
   if (years < 10000) return `${Math.round(years).toLocaleString('en-US')} yr`;
   if (years < 1e6) return `${(years / 1000).toFixed(1)} kyr`;
-  return `${(years / 1e6).toFixed(2)} Myr`;
+  return aeons(years);
 }

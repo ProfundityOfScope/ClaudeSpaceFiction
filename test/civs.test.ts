@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CIV, DEMO } from '../src/core/config.ts';
+import { CIV, DEMO, MEMORY } from '../src/core/config.ts';
 import { Galaxy, type SysRef } from '../src/core/galaxy.ts';
 import { Cultures, frontier, isLiving, phaseOf, type Culture, type Phase } from '../src/core/civs.ts';
 import { Game } from '../src/core/game.ts';
@@ -143,7 +143,6 @@ test('arriving where somebody lives: they are named, noted and left their home',
   assert.ok(said(out).includes(site.culture.title));
   assert.equal(g.state.met[site.culture.id]?.how, 'met');
   assert.ok(g.state.ship.archive >= CIV.MEET_ARCHIVE);
-  g.exec('sweep');
   assert.match(said(g.exec('look')), new RegExp(`${site.body}\\^`));
   assert.match(said(g.exec(`mine ${site.body}`)), /somebody's home/);
   assert.match(said(g.exec(`ice ${site.body}`)), /somebody's home/);
@@ -159,7 +158,6 @@ test('coming back after they have ended: ruins, and later nothing at all', () =>
   const g = Game.fresh();
   const target = nearby.find((s) => sitesAt(s.ref, 10).some((x) => x.alive && x.kind === 'home'))!;
   fly(g, target.ref.id);
-  g.exec('sweep');
   const c = g.people().sites.find((x) => x.alive)!.culture;
   fly(g, start.id);
   g.state.tGal = c.born + c.life + 50;
@@ -190,10 +188,9 @@ test('reading a ruin: whose it was, credit, and it is not offered twice', () => 
     const sites = sitesAt(s.ref, 30);
     return sites.length > 0 && sites.every((x) => !x.alive);
   })!;
-  fly(g, target.ref.id);
-  assert.doesNotMatch(said(g.exec('look')), /deep scan/, 'nothing shows before the sweep');
-  const swept = said(g.exec('sweep'));
-  assert.match(swept, /would say whose it was/);
+  // Ruins are seen on the way in, like everything else big enough to see.
+  assert.match(said(fly(g, target.ref.id)), /would say whose it was/);
+  assert.match(said(g.exec('system')), /deep scan/);
   const site = g.people().sites.find((x) => !x.alive)!;
   const before = g.state.ship.archive;
   assert.match(said(g.exec(`scan ${site.body}`)), /deep scan/);
@@ -210,7 +207,6 @@ test('reading a ruin: whose it was, credit, and it is not offered twice', () => 
 
 test('a signal on the chart is what the light shows', () => {
   const g = Game.fresh();
-  g.exec('sweep');
   const rows = g.exec('chart').find((o) => o.k === 'pre')!.s.split('\n');
   const loud = rows.filter((r) => r.endsWith('^'));
   assert.ok(loud.length > 0, 'the first chart shows a signal');
@@ -224,7 +220,6 @@ test('a signal on the chart is what the light shows', () => {
 
 test('unread ruins near enough to resolve are flagged on the chart, until they are read', () => {
   const g = Game.fresh();
-  g.exec('sweep');
   const rows = g.exec('chart').find((o) => o.k === 'pre')!.s.split('\n').slice(1);
   const ruined = g.state.chart.filter((id) => sitesAt(galaxy.ref(id)!, 0).some((x) => !x.alive));
   assert.ok(ruined.length > 0, 'the first chart lists somewhere with ruins');
@@ -232,7 +227,6 @@ test('unread ruins near enough to resolve are flagged on the chart, until they a
   // Read one, come away, and its flag is gone.
   const id = ruined[0];
   fly(g, id);
-  g.exec('sweep');
   for (const site of g.people().sites.filter((x) => !x.alive)) {
     g.exec(`scan ${site.body}`);
     g.exec('stay 200');
@@ -255,7 +249,6 @@ test('space somebody holds is drawn as a hull round their systems, once we know 
   }
   assert.ok(reach, 'a spreading culture within a few hundred light-years');
   const g = Game.fresh();
-  g.exec('sweep');
   assert.equal(g.exec('chart').find((o) => o.k === 'map')!.map!.held, undefined, 'nothing is drawn where nobody is known');
   g.state.ship.levels.engine = 10;
   g.state.ship.levels.hull = 10;
@@ -282,4 +275,66 @@ test('space somebody holds is drawn as a hull round their systems, once we know 
     assert.ok(theirs > 0);
     if (command === 'chart far') assert.ok(map.held.includes('0') && map.held.includes('1') && map.held.includes('2'), 'outside, inside and edge all show');
   }
+});
+
+test('peoples long gone are forgotten once the list is long, and are still named where they lived', () => {
+  // The date kept with each of them is safe: no ruin outlasts it.
+  for (const c of sample()) assert.ok(c.ruin <= CIV.RUIN_MAX, `${c.title}: ruins stand ${c.ruin} years`);
+  const g = Game.fresh();
+  const target = nearby.find((s) => sitesAt(s.ref, 10).some((x) => x.alive && x.kind === 'home'))!;
+  fly(g, target.ref.id);
+  const c = g.people().sites.find((x) => x.alive)!.culture;
+  const known = g.state.stats.peoples;
+  assert.ok(known >= 1 && g.state.met[c.id].until >= c.born + c.life + c.ruin);
+  // A long list of the long dead, while these are still alive: the dead go, the living stay.
+  for (let i = 0; i < MEMORY.PEOPLES + 20; i++) g.state.met[`W-99:old.${i}`] = { title: `the Old ${i}`, home: `old.${i}`, t: -9e5, how: 'ruins', until: -8e5 + i };
+  g.state.stats.jumps = MEMORY.TIDY - 1;
+  fly(g, start.id);
+  assert.equal(Object.keys(g.state.met).length, MEMORY.PEOPLES);
+  assert.ok(g.state.met[c.id], 'nobody is forgotten while anything of theirs is left');
+  assert.ok(!g.state.met['W-99:old.0'] && g.state.met[`W-99:old.${MEMORY.PEOPLES + 19}`], 'the longest gone are dropped first');
+  // Ages later they are the longest gone themselves.
+  g.state.tGal = c.born + c.life + c.ruin + 9000;
+  for (let i = 0; i < MEMORY.PEOPLES + 20; i++) g.state.met[`W-98:late.${i}`] = { title: `the Late ${i}`, home: `late.${i}`, t: 0, how: 'ruins', until: g.state.tGal - 100 + i / 10 };
+  g.state.stats.jumps = MEMORY.TIDY - 1;
+  fly(g, nearby.find((s) => s.ref.id !== target.ref.id)!.ref.id);
+  assert.equal(g.state.met[c.id], undefined);
+  assert.equal(Object.keys(g.state.met).length, MEMORY.PEOPLES);
+  // The count is of everyone ever known, and where they lived their name is still to hand.
+  assert.match(said(g.exec('finds')), new RegExp(`peoples +${known} known`));
+  assert.ok(said(fly(g, target.ref.id)).includes(`Nothing is left of ${c.title}`));
+});
+
+test('a spreading culture that has ended holds no space, and is not looked up again once it is long gone', () => {
+  const cc = DEMO.coarse;
+  let reach: Culture | null = null;
+  for (let i = -3; i <= 3 && !reach; i++) {
+    for (let j = -3; j <= 3 && !reach; j++) {
+      for (const era of [0, -1, -2]) {
+        reach ??= cultures.reachesIn(Math.floor(start.x / cc) + i, Math.floor(start.y / cc) + j, era).find((c) => frontier(c, 500) > 10 && frontier(c, 0) > 10) ?? null;
+      }
+    }
+  }
+  assert.ok(reach);
+  const g = Game.fresh();
+  g.state.ship.levels.engine = 10;
+  g.state.ship.levels.hull = 10;
+  fly(g, reach.home.id);
+  assert.equal(g.state.met[reach.id]?.how, 'met');
+  const theirs = (game: Game) => (game as unknown as { heldPoints(within: number): { culture: Culture }[] }).heldPoints(400).filter((h) => h.culture.id === reach!.id).length;
+  assert.equal(theirs(g), 1, 'while they last, their space is there to draw');
+  // Just after their end, at their own home: the light from all of it says so.
+  g.state.tGal = reach.born + reach.life + reach.reach!.radius + 50;
+  assert.equal(theirs(g), 0);
+  // And once nothing of theirs is left, the chart does not so much as look them up.
+  g.state.tGal = g.state.met[reach.id].until + 1;
+  let lookups = 0;
+  const byId = g.cultures.byId.bind(g.cultures);
+  g.cultures.byId = (id: string) => {
+    if (id === reach!.id) lookups++;
+    return byId(id);
+  };
+  g.exec('chart far');
+  assert.equal(lookups, 0);
+  assert.doesNotMatch(said(g.exec('chart')), new RegExp(reach.title));
 });

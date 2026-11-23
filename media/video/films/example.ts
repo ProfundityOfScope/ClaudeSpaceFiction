@@ -45,8 +45,8 @@ export const film: Film = {
     {
       // Real output: the game is run with these commands when the film is rendered.
       kind: 'console',
-      commands: ['sweep'],
-      match: 'orange dwarf|bodies resolved',
+      commands: ['system'],
+      match: 'orange dwarf|the star',
       lines: [{ text: 'This is what the game really printed, a moment ago.' }],
     },
   ],

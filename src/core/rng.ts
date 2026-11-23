@@ -30,6 +30,7 @@ export const K = {
   SPECIES: 17,
   HOLD: 18,
   RELIC: 19,
+  SEAM: 20,
 } as const;
 
 function fmix(h: number): number {
