@@ -50,15 +50,34 @@ Three features the owner named, with what inspired each:
 2. **Cryo for the navigator, at some cost**: time passes faster while parked, and micromanagement is given up for the duration. It also makes trips subjectively shorter. (House of Suns.)
 3. **Managing the ship itself, small and large**: in the manner of FTL and Barotrauma but on a bigger scale; Space Haven for the look; the population handled more like a city in Cities: Skylines, complicated by its being a giant spaceship.
 
-Offered to the owner in reply, none of it decided. Do not build any of it without a yes.
+What the owner has decided since:
 
-- **The fiction already is the idle loop.** The game opens with "You asked to be woken when there was something to decide." A notification is the Mind waking the navigator; being away is being asleep; the Mind runs standing orders meanwhile and reports on waking. The logic that drives the buttons and the bot (`suggestions`, `refitAim`) is the start of those standing orders.
+- **The player is the navigator.** Things happen in real time from the player's point of view, and that includes while the app is closed: time runs on under the Mind's standing orders.
+- **Cryo costs absence**, and nothing else. No mortal navigator, no succession: that idea is dropped, because the player is the navigator.
+- **Order of work**: contact, then trade, then anything else vital, and only then the jump to real time.
+- **A well-built native iOS app.** Not a website in a wrapper: the owner finds those limit the design. The choice still open is between Godot throughout and Swift with Apple's own frameworks (the owner named SwiftUI and Metal, and has complex pixel art in mind). See "The native app: thinking so far".
+- **The ideas below are all approved as ideas** and stay in the bank. None is scheduled.
+
+The ideas bank (offered in reply to the vision; the owner likes all of them):
+
+- **The fiction already is the idle loop.** The game opens with "You asked to be woken when there was something to decide." A notification is the Mind waking the navigator; being away is being asleep; the Mind runs standing orders meanwhile and reports on waking. The logic that drives the buttons and the bot (`suggestions`, `refitAim`) is the start of those standing orders. Delegating to the Mind is the incremental curve: by hand at first, handed over later, and done its way.
 - **Three scales, one of them home.** The ship is the thing tended for ever (the incremental core); a system is a season (a stop that feeds and changes the ship); the galaxy is the long game. The refit tracks become places on a cutaway of the ship; the five materials are what a city aboard would consume.
 - **Knowledge resolves with distance, at every scale.** Already true from light-years (the chart), on approach (the Mind's sentence) and in orbit (the survey). In-system movement extends it: go nearer, see more.
 - **In-system movement as places, not free flight**: a handful of spots to park per system, each with a transit cost, and work that goes faster the nearer the ship is. Hazards have a forecast and a geometry (flares from red dwarfs, a giant's radiation belts, a pulsar's beam).
-- **Cryo's cost is absence**: defaults decide what the navigator would have decided, standing aboard decays, and a term once begun is costly to break. Offered as an alternative or an addition: the navigator has a finite waking life, cryo spares it, and navigators succeed one another.
-- **Other ideas floated**: the system resolving step by step during the braking burn; the braking plume as something others see and react to; letters at the speed of light; appointments kept across time dilation; deep orbits round black holes as places where outside time races; founding a colony or a daughter ship as the way a very large ship starts over, to be met again later; the Archive's relics as a museum deck with limited room.
-- **Getting there**: split rules from prose in `game.ts` (typed actions in, typed events out, the text log as one reader of them); replace `stay` by a clock that jumps from event to event, so that weeks away cost one calculation; then try, in text, a live clock with standing orders and cryo, then places within a system, then a small population model. Draw the system map first, the ship second, the galaxy third.
+- **Cryo as absence, in detail**: defaults decide what the navigator would have decided, standing aboard decays, and a term once begun is costly to break; only the navigator's wake rules end it early.
+- **The ship as a city**: policy and placement, not individuals. Emergencies are rare and have geography (which district took the breach). Generations turn over on long hauls, so the ship drifts.
+- **Smaller ideas**: the system resolving step by step during the braking burn; the braking plume as something others see and react to; letters at the speed of light; appointments kept across time dilation; deep orbits round black holes as places where outside time races; founding a colony or a daughter ship as the way a very large ship starts over, to be met again later; the Archive's relics as a museum deck with limited room.
+
+### The native app: thinking so far
+
+Recommended to the owner, not yet agreed:
+
+- **Swift for the rules, SwiftUI for every panel, SpriteKit for the three pixel views** (galaxy, system, ship), with Metal shaders only where an effect needs one. Reasons: the game is mostly interface over a simulation; an idle game lives on what only native code reaches easily (local notifications as the Mind waking the navigator, a widget, a Live Activity for a burn); the glass look the owner wants is the system's own material in SwiftUI; and the two maps are small pictures generated from data, which need no engine.
+- **Godot wins instead** if the game should also run on other platforms, or if the ship view turns out to be a large hand-animated scene that wants an editor. A middle course exists: a Godot view embedded in the Swift app for that one scene. Check how mature that tooling is before counting on it.
+- **The rules move to Swift either way** (a widget has to be able to compute the ship's state without the app). Port them faithfully first, checked against transcripts recorded from the TypeScript version on several seeds; then do galaxy version 2 in Swift, where 64-bit integers are native. The port throws saves away once, and so does version 2: do them together.
+- **Keep the rules a plain Swift package** with no Apple frameworks in it, so that its tests, the bot and the census can still run in a cloud session on Linux. The app around it needs Xcode on the owner's Mac.
+- **Before any of that**, in TypeScript, where trying things is cheapest: split rules from prose in `game.ts` (typed actions in, typed events out, the text log as one reader of them), and replace `stay` by a clock that jumps from event to event, so that weeks away cost one calculation. That split is the blueprint for the port. Whether real time is then tried in text first or straight in the app is for the owner to say.
+- Order of drawing, when it comes: the text game running natively with notifications; then the system map; then the ship; then the galaxy.
 
 ## The slice plan
 
