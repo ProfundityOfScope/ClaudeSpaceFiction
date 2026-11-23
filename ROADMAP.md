@@ -357,6 +357,7 @@ The owner's leaning since, which is the better plan and replaces "one repository
   - **The port check crosses repositories without trouble**: the transcripts are files. A tool here writes them, and the new project keeps them as fixtures.
   - **Layout on the Mac**: the three checkouts side by side, the session opened in the new project with the other two added as extra directories to read.
 - The third project is not needed until the port. Contact, trade and the real-time test are still done here first.
+- **Names.** The galaxy prototype is called Lightward. The owner gave it that name expecting it to grow into the full app, and now expects the third project to be the full app. Advised: one Lightward only, and it is the app; the galaxy prototype takes a name that says what it is (for instance `lightward-galaxy`), by renaming its folder and repository and leaving the Xcode project's insides alone unless both must be installed on the phone at once. Not settled: whether the game itself is now called Lightward. Everything here still says Lightspeed, and renaming this repository would change the address of the public page.
 
 ### What the plan has to respect
 
